@@ -2,10 +2,12 @@
 #include <iostream>
 #include <fstream>
 #include <cstring>
+#include <vector>
 #include <signal.h>
 #include <unistd.h>
 #include "common.h"
 #include "printer.h"
+#include "printer_workflows.h"
 #ifdef USE_GUI
 	#include "gui.h"
 #endif
@@ -14,9 +16,7 @@ using namespace std;
 
 
 // Global variables
-#ifndef USE_GUI
-	Printer printer;
-#endif
+Printer printer;
 
 
 // Function prototypes
@@ -32,35 +32,30 @@ Name: Install firmware
 Purpose: Installs specified firmware
 */
 bool installFirmware(const string &firmwareLocation, const string &serialPort);
+int runPrintJobCli(const string &filePath, const string &serialPort);
+int runRawCommandCli(const string &command, const string &serialPort);
+void configureCliPrinterLogging();
+#ifdef USE_GUI
+int runGuiCli(int argc, char *argv[]);
+#endif
 
 
 // Check if using GUI
 #ifdef USE_GUI
 
 	// Implement application
-	wxIMPLEMENT_APP(MyApp);
+	wxIMPLEMENT_APP_NO_MAIN(MyApp);
 #endif
 
 
 // Main function
 #ifdef USE_GUI
 	bool MyApp::OnInit() {
-#else
-	int main(int argc, char *argv[]) {
-#endif
 
-	// Initialize wxWidgets application state
-	#ifdef USE_GUI
+		// Initialize wxWidgets application state
 		if(!wxApp::OnInit())
 			return false;
-	#endif
-	
-	// Attach break handler
-	signal(SIGINT, breakHandler);
-	
-	// Check if using GUI
-	#ifdef USE_GUI
-	
+
 		// Check if using macOS
 		#ifdef MACOS
 		
@@ -80,9 +75,26 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 		
 		// Return true
 		return true;
-	
-	// Otherwise
-	#else
+	}
+
+	int main(int argc, char *argv[]) {
+
+		// Attach break handler
+		signal(SIGINT, breakHandler);
+
+		// Check if using CLI mode
+		if(argc > 1)
+			return runGuiCli(argc, argv);
+
+		// Start GUI mode
+		return wxEntry(argc, argv);
+	}
+
+#else
+	int main(int argc, char *argv[]) {
+
+		// Attach break handler
+		signal(SIGINT, breakHandler);
 	
 		// Display version
 		cout << "M33 Manager V" TOSTRING(VERSION) << endl << endl;
@@ -109,7 +121,7 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 						iMeVersion.insert(i * 2 + 2 + i, ".");
 		
 					// Display help
-					cout << "Usage: \"M33 Manager\" -d -f -b -i -3 -r firmware.rom -m serialport" << endl;
+					cout << "Usage: \"M33 Manager\" -d -f -b -i -3 -r firmware.rom -m serialport --print file.gcode [serialport] --command \"GCODE\" [serialport]" << endl;
 					#ifndef MACOS
 						cout << "-d | --drivers: Install device drivers" << endl;
 					#endif
@@ -119,6 +131,8 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 					cout << "-3 | --m3d: Installs M3D V" TOSTRING(M3D_ROM_VERSION_STRING) << endl;
 					cout << "-r | --rom: Installs the provided firmware" << endl;
 					cout << "-m | --manual: Allows manually sending commands to the printer" << endl;
+					cout << "--print: Prepares and prints the provided G-code file using the connected printer" << endl;
+					cout << "--command | -c: Sends a single raw command string to the connected printer" << endl;
 					cout << "serialport: The printer's serial port or it will automatically find the printer if not specified" << endl << endl;
 			
 					// Return
@@ -209,17 +223,17 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 							CloseHandle(processInfo.hProcess);
 							CloseHandle(processInfo.hThread);
 						
-							if(!exitCode) {
-			
+							if(exitCode) {
+				
 								// Display error
 								cout << "Failed to install drivers" << endl;
 					
 								// Return
 								return EXIT_FAILURE;
 							}
-			
+				
 							// Display message
-							cout << "Drivers successfully installed" << endl;
+							cout << "Driver installation was started successfully. Windows may still show a trust prompt before the driver is fully installed. You might need to reconnect the printer afterward." << endl;
 						#endif
 			
 						// Otherwise check if using Linux
@@ -539,6 +553,56 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 					// Return
 					return EXIT_SUCCESS;
 				}
+
+				// Otherwise check if printing a G-code file
+				else if(!strcmp(argv[i], "--print")) {
+
+					// Check if G-code file parameter doesn't exist
+					if(i >= argc - 1) {
+
+						// Display error
+						cout << "No G-code file provided" << endl;
+
+						// Return
+						return EXIT_FAILURE;
+					}
+
+					// Set G-code file location
+					string filePath = static_cast<string>(argv[++i]);
+
+					// Set serial port
+					string serialPort;
+					if(i < argc - 1)
+						serialPort = argv[argc - 1];
+
+					// Return print result
+					return runPrintJobCli(filePath, serialPort);
+				}
+
+				// Otherwise check if sending a single raw command
+				else if(!strcmp(argv[i], "--command") || !strcmp(argv[i], "-c")) {
+
+					// Check if command parameter doesn't exist
+					if(i >= argc - 1) {
+
+						// Display error
+						cout << "No command provided" << endl;
+
+						// Return
+						return EXIT_FAILURE;
+					}
+
+					// Set command
+					string command = static_cast<string>(argv[++i]);
+
+					// Set serial port
+					string serialPort;
+					if(i < argc - 1)
+						serialPort = argv[argc - 1];
+
+					// Return command result
+					return runRawCommandCli(command, serialPort);
+				}
 		
 				// Otherwise check if using manual mode
 				else if(!strcmp(argv[i], "-m") || !strcmp(argv[i], "--manual")) {
@@ -649,8 +713,7 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 		
 		// Return
 		return EXIT_SUCCESS;
-	#endif
-}
+		#endif
 
 
 // Supporting function implementation
@@ -659,6 +722,126 @@ void breakHandler(int signal) {
 	// Terminates the process normally
 	exit(EXIT_FAILURE);
 }
+
+void configureCliPrinterLogging() {
+	printer.setLogFunction([=](const string &message) -> void {
+		if(message != "Remove last line")
+			cout << "[" << getTerminalLogLabel(message) << "] " << message << endl;
+	});
+}
+
+int runPrintJobCli(const string &filePath, const string &serialPort) {
+	configureCliPrinterLogging();
+
+	ifstream file(filePath);
+	if(!file.good()) {
+		cout << "[error] G-code file doesn't exist" << endl;
+		return EXIT_FAILURE;
+	}
+	file.close();
+
+	PrinterWorkflows workflows(printer);
+	PreparedPrintJob job = workflows.preparePrintJob(filePath);
+	if(!job.valid) {
+		cout << "[error] " << job.errorText << endl;
+		return EXIT_FAILURE;
+	}
+
+	if(!printer.connect(serialPort)) {
+		cout << "[error] " << printer.getStatus() << endl;
+		return EXIT_FAILURE;
+	}
+
+	if(!workflows.ensureMode(FIRMWARE)) {
+		cout << "[error] Failed to switch printer into firmware mode" << endl;
+		return EXIT_FAILURE;
+	}
+
+	cout << "[" << getTerminalLogLabel(job.summaryText) << "] " << job.summaryText << endl;
+
+	for(size_t i = 0; i < job.printableCommands.size(); i++) {
+		ThreadTaskResponse response = workflows.executePreparedPrintCommand(job.printableCommands[i], [=](const string &message) -> void {
+			if(message != "Remove last line")
+				cout << "[" << getTerminalLogLabel(message) << "] " << message << endl;
+		});
+
+		if(!response.message.empty())
+			cout << "[" << getTerminalLogLabel(response.message) << "] " << response.message << endl;
+
+		if(!printer.isConnected()) {
+			cout << "[error] Printer disconnected during print" << endl;
+			return EXIT_FAILURE;
+		}
+
+		if((i + 1) % 100 == 0 || i + 1 == job.printableCommands.size())
+			cout << "[progress] " << (i + 1) << " / " << job.printableCommands.size() << endl;
+	}
+
+	cout << "[job] Print completed" << endl;
+	return EXIT_SUCCESS;
+}
+
+int runRawCommandCli(const string &command, const string &serialPort) {
+	configureCliPrinterLogging();
+
+	if(!printer.connect(serialPort)) {
+		cout << "[error] " << printer.getStatus() << endl;
+		return EXIT_FAILURE;
+	}
+
+	PrinterWorkflows workflows(printer);
+	ThreadTaskResponse response = workflows.executeManualCommand(command, [=](const string &message) -> void {
+		if(message != "Remove last line")
+			cout << "[" << getTerminalLogLabel(message) << "] " << message << endl;
+	});
+
+	if(!response.message.empty())
+		cout << "[" << getTerminalLogLabel(response.message) << "] " << response.message << endl;
+
+	if(!printer.isConnected()) {
+		cout << "[error] Printer disconnected" << endl;
+		return EXIT_FAILURE;
+	}
+
+	return EXIT_SUCCESS;
+}
+
+#ifdef USE_GUI
+int runGuiCli(int argc, char *argv[]) {
+	cout << "M33 Manager V" TOSTRING(VERSION) << endl << endl;
+
+	vector<string> args;
+	for(int i = 0; i < argc; i++)
+		args.push_back(argv[i]);
+
+	if(args.size() >= 2 && (args[1] == "-h" || args[1] == "--help")) {
+		cout << "Usage: \"M33 Manager\" --print file.gcode [serialport]" << endl;
+		cout << "--print: Prepares and prints the provided G-code file using the connected printer" << endl;
+		cout << "--command | -c: Sends a single raw command string to the connected printer" << endl;
+		cout << "serialport: Optional printer serial port or it will autodetect when omitted" << endl;
+		return EXIT_SUCCESS;
+	}
+
+	if(args.size() >= 2 && args[1] == "--print" && args.size() < 3) {
+		cout << "[error] No G-code file provided" << endl;
+		return EXIT_FAILURE;
+	}
+
+	if(args.size() >= 3 && args[1] == "--print")
+		return runPrintJobCli(args[2], args.size() >= 4 ? args[3] : "");
+
+	if(args.size() >= 2 && (args[1] == "--command" || args[1] == "-c") && args.size() < 3) {
+		cout << "[error] No command provided" << endl;
+		return EXIT_FAILURE;
+	}
+
+	if(args.size() >= 3 && (args[1] == "--command" || args[1] == "-c"))
+		return runRawCommandCli(args[2], args.size() >= 4 ? args[3] : "");
+
+	cout << "[error] Unsupported CLI parameters for the GUI build" << endl;
+	return EXIT_FAILURE;
+}
+#endif
 
 // Check if not using GUI
 #ifndef USE_GUI

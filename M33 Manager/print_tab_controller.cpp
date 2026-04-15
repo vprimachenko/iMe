@@ -78,6 +78,8 @@ void PrintTabController::applyPrintJobStatus(const PrintJobStatus &status) {
 	wxString statusLabel = status.statusText.empty() ? "No print job loaded" : status.statusText;
 	if(!status.errorText.empty())
 		statusLabel = status.errorText;
+	if(!interactiveEnabled && !interactiveDisabledMessage.empty() && status.state != PRINT_JOB_RUNNING && status.state != PRINT_JOB_PAUSED && status.state != PRINT_JOB_STOPPING)
+		statusLabel = interactiveDisabledMessage;
 	statusText->SetLabel(statusLabel);
 
 	const int range = static_cast<int>(std::max<size_t>(status.totalCommands, 1));
@@ -91,19 +93,25 @@ void PrintTabController::applyPrintJobStatus(const PrintJobStatus &status) {
 	const bool paused = status.state == PRINT_JOB_PAUSED;
 	const bool stopping = status.state == PRINT_JOB_STOPPING;
 
-	browseButton->Enable(!printing && !paused && !stopping);
+	browseButton->Enable(interactiveEnabled && !printing && !paused && !stopping);
 
 	const bool allowStart = hasLoadedJob && (status.state == PRINT_JOB_LOADED || status.state == PRINT_JOB_COMPLETED || status.state == PRINT_JOB_FAILED);
 	startButton->Show(allowStart);
-	startButton->Enable(allowStart);
+	startButton->Enable(interactiveEnabled && allowStart);
 
 	pauseResumeButton->Show(printing || paused);
 	pauseResumeButton->SetLabel(paused ? "Resume" : "Pause");
-	pauseResumeButton->Enable(!stopping);
+	pauseResumeButton->Enable(interactiveEnabled && !stopping);
 
 	stopButton->Show(printing || paused || stopping);
-	stopButton->Enable(!stopping);
+	stopButton->Enable(interactiveEnabled && !stopping);
 
 	if(filePathText && filePathText->GetParent())
 		filePathText->GetParent()->Layout();
+}
+
+void PrintTabController::setInteractiveEnabled(bool enabled, const string &disabledMessage) {
+	interactiveEnabled = enabled;
+	interactiveDisabledMessage = disabledMessage;
+	applyPrintJobStatus(host->getPrintJobStatus());
 }

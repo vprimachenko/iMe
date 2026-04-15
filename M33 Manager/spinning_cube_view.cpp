@@ -196,7 +196,11 @@ class PreviewCanvas : public wxGLCanvas {
 		}
 
 		void drawSegments(bool extrudingSegments, bool completedSegments) {
-			glLineWidth(extrudingSegments ? 2.5f : 1.2f);
+			if(extrudingSegments)
+				glLineWidth(completedSegments ? 3.8f : 2.0f);
+			else
+				glLineWidth(completedSegments ? 1.8f : 1.0f);
+
 			glBegin(GL_LINES);
 			for(size_t i = 0; i < job.previewSegments.size(); i++) {
 				const PrintPreviewSegment &segment = job.previewSegments[i];
@@ -209,15 +213,15 @@ class PreviewCanvas : public wxGLCanvas {
 
 				if(segment.extruding) {
 					if(completed)
-						glColor3f(0.97f, 0.45f, 0.16f);
+						glColor3f(1.00f, 0.44f, 0.10f);
 					else
-						glColor3f(0.98f, 0.74f, 0.30f);
+						glColor3f(0.40f, 0.25f, 0.10f);
 				}
 				else {
 					if(completed)
-						glColor3f(0.48f, 0.52f, 0.60f);
+						glColor3f(0.52f, 0.72f, 1.00f);
 					else
-						glColor3f(0.28f, 0.32f, 0.40f);
+						glColor3f(0.16f, 0.20f, 0.26f);
 				}
 
 				glVertex3f(segment.startX, segment.startY, segment.startZ);
@@ -266,6 +270,7 @@ class PreviewCanvas : public wxGLCanvas {
 			const float gridSize = std::max(50.0f, sceneRadius * 2.0f);
 			drawGrid(gridSize, 10);
 			drawAxes(std::max(15.0f, sceneRadius * 0.4f));
+			// Draw future path first as a subdued preview, then overlay completed path.
 			drawSegments(false, false);
 			drawSegments(true, false);
 			drawSegments(false, true);

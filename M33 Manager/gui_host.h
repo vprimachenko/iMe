@@ -40,6 +40,7 @@ struct PreparedPrintJob {
 	string filePath;
 	vector<string> printableCommands;
 	vector<Gcode> parsedCommands;
+	vector<string> statusMessages;
 	vector<PrintPreviewSegment> previewSegments;
 	float minX = 0.0f;
 	float minY = 0.0f;
@@ -79,9 +80,10 @@ class GuiHost {
 		virtual void runMotorsOff() = 0;
 		virtual void runFanOn() = 0;
 		virtual void runFanOff() = 0;
-		virtual void runCalibrateBedPosition() = 0;
-		virtual void runCalibrateBedOrientation() = 0;
-		virtual void runSaveZAsZero() = 0;
+			virtual void runCalibrateBedPosition() = 0;
+			virtual void runCalibrateBedOrientation() = 0;
+			virtual void runSaveCurrentPositionAsHome() = 0;
+			virtual void runSaveZAsZero() = 0;
 		virtual void savePrinterSetting(const string &settingName, const string &value) = 0;
 		virtual void installImeFirmware() = 0;
 		virtual void installM3dFirmware() = 0;

@@ -8,6 +8,46 @@ bool printJobBlocksUiState(PrintJobState state) {
 	return state == PRINT_JOB_RUNNING || state == PRINT_JOB_PAUSED || state == PRINT_JOB_STOPPING;
 }
 
+string describePrintPhase(const string &command) {
+	if(command.rfind("M109", 0) == 0 || command.rfind("M104", 0) == 0)
+		return "Heating the nozzle...";
+
+	if(command.rfind("G28", 0) == 0)
+		return "Homing...";
+
+	if(command.rfind("G92", 0) == 0)
+		return "Zeroing the extruder...";
+
+	if(command.rfind("M106", 0) == 0 || command.rfind("M107", 0) == 0)
+		return "Adjusting cooling...";
+
+	if(command.rfind("M104 S0", 0) == 0)
+		return "Cooling down...";
+
+	if(command.rfind("M18", 0) == 0)
+		return "Finishing...";
+
+	if(command.rfind("G0", 0) == 0 || command.rfind("G1", 0) == 0) {
+		const bool movesXY = command.find('X') != string::npos || command.find('Y') != string::npos;
+		const bool movesZ = command.find('Z') != string::npos;
+		const bool extrudes = command.find('E') != string::npos;
+
+		if(extrudes && !movesXY && !movesZ)
+			return "Priming the nozzle...";
+
+		if(extrudes)
+			return "Printing...";
+
+		if(movesZ && !movesXY)
+			return "Adjusting Z height...";
+
+		if(movesXY || movesZ)
+			return "Positioning the print head...";
+	}
+
+	return "Sending printer command...";
+}
+
 }
 
 void MyFrame::loadPrintFile() {
@@ -96,6 +136,19 @@ void MyFrame::startPrintJob() {
 					break;
 			}
 
+			PrintJobStatus phaseStatus;
+			phaseStatus.filePath = job.filePath;
+			phaseStatus.totalCommands = job.acceptedCommandCount;
+			phaseStatus.currentCommandIndex = i;
+			phaseStatus.summaryText = job.summaryText;
+			phaseStatus.statusText = (i < job.statusMessages.size() && !job.statusMessages[i].empty()) ? job.statusMessages[i] : describePrintPhase(job.printableCommands[i]);
+			phaseStatus.state = PRINT_JOB_RUNNING;
+			{
+				wxCriticalSectionLocker taskLock(criticalLock);
+				printJobStatus = phaseStatus;
+				printJobUpdateQueue.push(phaseStatus);
+			}
+
 			workflows.executePreparedPrintCommand(job.printableCommands[i], [=](const string &message) -> void {
 				logToConsole(message);
 			});
@@ -122,7 +175,7 @@ void MyFrame::startPrintJob() {
 			progressStatus.totalCommands = job.acceptedCommandCount;
 			progressStatus.currentCommandIndex = i + 1;
 			progressStatus.summaryText = job.summaryText;
-			progressStatus.statusText = printPauseRequested ? "Paused" : "Printing";
+			progressStatus.statusText = printPauseRequested ? "Paused" : "Printing...";
 			progressStatus.state = printPauseRequested ? PRINT_JOB_PAUSED : PRINT_JOB_RUNNING;
 			{
 				wxCriticalSectionLocker taskLock(criticalLock);
@@ -213,6 +266,23 @@ const PreparedPrintJob &MyFrame::getPreparedPrintJob() const {
 void MyFrame::applyPrintJobStatus(const PrintJobStatus &status) {
 	printJobStatus = status;
 	printTabController.applyPrintJobStatus(status);
+	updatePrintUiAvailability();
+
+	if(status.state == PRINT_JOB_RUNNING || status.state == PRINT_JOB_PAUSED || status.state == PRINT_JOB_STOPPING) {
+		setStatusRowVisible(true);
+		statusText->SetLabel(status.statusText.empty() ? "Printing..." : status.statusText);
+		statusText->SetForegroundColour(status.state == PRINT_JOB_PAUSED ? wxColour(255, 180, 0) : wxColour(80, 170, 255));
+	}
+	else if(status.state == PRINT_JOB_COMPLETED) {
+		setStatusRowVisible(true);
+		statusText->SetLabel("Print completed");
+		statusText->SetForegroundColour(wxColour(0, 200, 0));
+	}
+	else if(status.state == PRINT_JOB_FAILED) {
+		setStatusRowVisible(true);
+		statusText->SetLabel(status.errorText.empty() ? "Print failed" : status.errorText);
+		statusText->SetForegroundColour(wxColour(255, 0, 0));
+	}
 
 	if(printJobBlocksUiState(status.state)) {
 		enableConnectionControls(false);
@@ -241,6 +311,7 @@ void MyFrame::restoreControlsForCurrentState() {
 		enableMiscellaneousControls(false);
 		enableCalibrationControls(false);
 		enableConnectionControls(true);
+		updatePrintUiAvailability();
 		return;
 	}
 
@@ -261,8 +332,29 @@ void MyFrame::restoreControlsForCurrentState() {
 		enableMiscellaneousControls(true);
 		enableCalibrationControls(true);
 	}
+
+	updatePrintUiAvailability();
 }
 
 bool MyFrame::isPrintJobBlockingUi() const {
 	return printJobBlocksUiState(printJobStatus.state);
+}
+
+void MyFrame::updatePrintUiAvailability() {
+	if(isPrintJobBlockingUi()) {
+		printTabController.setInteractiveEnabled(true);
+		return;
+	}
+
+	if(!printer.isConnected()) {
+		printTabController.setInteractiveEnabled(false, "Connect to a printer to prepare a print.");
+		return;
+	}
+
+	if(printer.getOperatingMode() == BOOTLOADER) {
+		printTabController.setInteractiveEnabled(false, "Printing is unavailable in bootloader mode.");
+		return;
+	}
+
+	printTabController.setInteractiveEnabled(true);
 }

@@ -13,6 +13,7 @@ class PrintTabController {
 	public:
 		void build(const UiLayout &ui, GuiHost &host);
 		void applyPrintJobStatus(const PrintJobStatus &status);
+		void setInteractiveEnabled(bool enabled, const string &disabledMessage = "");
 
 	private:
 		GuiHost *host = nullptr;
@@ -26,6 +27,8 @@ class PrintTabController {
 		wxButton *pauseResumeButton = nullptr;
 		wxButton *stopButton = nullptr;
 		SpinningCubeView *preview = nullptr;
+		bool interactiveEnabled = true;
+		string interactiveDisabledMessage;
 };
 
 #endif

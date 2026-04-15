@@ -15,7 +15,6 @@
 wxDEFINE_EVENT(wxEVT_THREAD_TASK_START, wxThreadEvent);
 wxDEFINE_EVENT(wxEVT_THREAD_TASK_COMPLETE, wxThreadEvent);
 
-
 // Supporting function implementation
 wxBitmap loadImage(const unsigned char *data, unsigned long long size, int width = -1, int height = -1, int offsetX = 0, int offsetY = 0) {
 	
@@ -131,17 +130,19 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	Bind(wxEVT_TIMER, &MyFrame::updateStatus, this, statusTimer->GetId());
 	statusTimer->Start(100);
 
-	switchToModeButton = new wxButton(ui.statusRow, wxID_ANY, "Switch to bootloader mode");
-	switchToModeButton->Enable(false);
-	switchToModeButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		switchToMode();
-	});
-	ui.statusRowSizer->Add(switchToModeButton, 0, wxALIGN_CENTER_VERTICAL);
-
 	mainTabController.build(ui, *this);
 	controlTabController.build(ui, *this);
 	firmwareTabController.build(ui, *this);
 	printTabController.build(ui, *this);
+
+	wxStaticText *firmwareModeHint = new wxStaticText(ui.firmwareSection, wxID_ANY,
+		"Firmware management actions require bootloader mode.\n"
+		"Connect uses firmware mode automatically for normal printer control.");
+	switchToModeButton = new wxButton(ui.firmwareSection, wxID_ANY, "Switch to bootloader mode");
+	switchToModeButton->Enable(false);
+	switchToModeButton->Bind(wxEVT_BUTTON, &MyFrame::onSwitchToModeButton, this);
+	ui.firmwareSizer->Insert(0, firmwareModeHint, 0, wxEXPAND | wxBOTTOM, 8);
+	ui.firmwareSizer->Insert(1, switchToModeButton, 0, wxALIGN_LEFT | wxBOTTOM, 12);
 
 	// Create version text
 	versionText = new wxStaticText(ui.footerSection, wxID_ANY, "M33 Manager V" TOSTRING(VERSION), wxDefaultPosition, wxSize(
@@ -195,10 +196,45 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#endif
 }
 
-MyFrame::~MyFrame() = default;
+MyFrame::~MyFrame() {
+	shutdownFrameResources();
+}
+
+void MyFrame::shutdownFrameResources() {
+	if(logTimer) {
+		logTimer->Stop();
+		Unbind(wxEVT_TIMER, &MyFrame::updateLog, this, logTimer->GetId());
+		delete logTimer;
+		logTimer = nullptr;
+	}
+
+	if(statusTimer) {
+		statusTimer->Stop();
+		Unbind(wxEVT_TIMER, &MyFrame::updateStatus, this, statusTimer->GetId());
+		delete statusTimer;
+		statusTimer = nullptr;
+	}
+
+	Unbind(wxEVT_THREAD_TASK_START, &MyFrame::threadTaskStart, this);
+	Unbind(wxEVT_THREAD_TASK_COMPLETE, &MyFrame::threadTaskComplete, this);
+
+	printer.disconnect();
+	stopWorkerThread();
+
+	wxCriticalSectionLocker lock(criticalLock);
+	while(!threadStartCallbackQueue.empty())
+		threadStartCallbackQueue.pop();
+	while(!threadTaskQueue.empty())
+		threadTaskQueue.pop();
+	while(!threadCompleteCallbackQueue.empty())
+		threadCompleteCallbackQueue.pop();
+	while(!logQueue.empty())
+		logQueue.pop();
+	while(!printJobUpdateQueue.empty())
+		printJobUpdateQueue.pop();
+}
 
 void MyFrame::workerMain() {
-
 	// Loop until stopped
 	while(!workerStopRequested.load()) {
 		
@@ -315,29 +351,7 @@ void MyFrame::close(wxCloseEvent& event) {
 	}
 
 	closing = true;
-
-	// Stop timers and unbind timer handlers before destruction.
-	if(logTimer) {
-		logTimer->Stop();
-		Unbind(wxEVT_TIMER, &MyFrame::updateLog, this, logTimer->GetId());
-		delete logTimer;
-		logTimer = nullptr;
-	}
-
-	if(statusTimer) {
-		statusTimer->Stop();
-		Unbind(wxEVT_TIMER, &MyFrame::updateStatus, this, statusTimer->GetId());
-		delete statusTimer;
-		statusTimer = nullptr;
-	}
-
-	Unbind(wxEVT_THREAD_TASK_START, &MyFrame::threadTaskStart, this);
-	Unbind(wxEVT_THREAD_TASK_COMPLETE, &MyFrame::threadTaskComplete, this);
-
-	// Disconnect printer
-	printer.disconnect();
-	
-	stopWorkerThread();
+	shutdownFrameResources();
 
 	DeletePendingEvents();
 	
@@ -346,7 +360,6 @@ void MyFrame::close(wxCloseEvent& event) {
 }
 
 void MyFrame::changePrinterConnection(wxCommandEvent& event) {
-	
 	// Disable button that triggered event
 	FindWindowById(event.GetId())->Enable(false);
 
@@ -361,7 +374,6 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 
 		// Append thread start callback to queue
 		threadStartCallbackQueue.push([=]() -> void {
-		
 			// Stop status timer
 			statusTimer->Stop();
 		
@@ -380,9 +392,12 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 		
 		// Append thread task to queue
 		threadTaskQueue.push([=]() -> ThreadTaskResponse {
-		
 			// Connect to printer
 			printer.connect(currentChoice != "Auto" ? currentChoice : "");
+
+			// Normal interactive use expects firmware mode after connecting.
+			if(printer.isConnected())
+				workflows.ensureMode(FIRMWARE);
 			
 			// Return empty response
 			return {"", 0};
@@ -390,7 +405,6 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 
 		// Append thread complete callback to queue
 		threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
-		
 			// Set allow enabling controls
 			allowEnablingControls = true;
 	
@@ -404,12 +418,9 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 				setStatusRowVisible(true);
 				setConnectedUiVisible(true);
 
-				// Enable firmware controls
-				enableFirmwareControls(true);
-				enableCommandControls(true);
-				
 				// Change connection button to disconnect	
 				connectionButton->SetLabel("Disconnect");
+				restoreControlsForCurrentState();
 				refreshWindowLayout();
 				
 				// Log printer mode
@@ -417,9 +428,6 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 				
 				// Start status timer
 				statusTimer->Start(100);
-				
-				// Check invalid values
-				checkInvalidValues();
 			}
 			
 			// Otherwise
@@ -431,6 +439,7 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 
 				// Enable connection controls
 				enableConnectionControls(true);
+				updatePrintUiAvailability();
 				refreshWindowLayout();
 				
 				// Start status timer
@@ -490,6 +499,7 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 		
 			// Enable connection controls
 			enableConnectionControls(true);
+			updatePrintUiAvailability();
 			refreshWindowLayout();
 		
 			// Start status timer
@@ -502,6 +512,10 @@ void MyFrame::logToConsole(const string &message) {
 
 	// Lock
 	wxCriticalSectionLocker lock(criticalLock);
+
+	// Mirror GUI console output to the launching terminal for easier debugging.
+	cout << "[" << getTerminalLogLabel(message) << "] " << message << endl;
+	cout.flush();
 
 	// Append message to log queue
 	logQueue.push(message);
@@ -566,6 +580,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 			
 						// Set switch mode button label
 						switchToModeButton->SetLabel("Switch to bootloader mode");
+						updatePrintUiAvailability();
 					
 						// Check if controls can be enabled
 						if(allowEnablingControls) {
@@ -590,6 +605,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 				
 						// Set switch mode button label
 						switchToModeButton->SetLabel("Switch to firmware mode");
+						updatePrintUiAvailability();
 					
 						// Check if controls can be enabled
 						if(allowEnablingControls) {
@@ -611,6 +627,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 				
 					// Otherwise check if the printer has been disconnected
 					else if(message == "Printer has been disconnected") {
+						updatePrintUiAvailability();
 				
 						// Check if controls can be enabled
 						if(allowEnablingControls) {
@@ -681,6 +698,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 			
 			// Enable connection button
 			connectionButton->Enable(true);
+			updatePrintUiAvailability();
 		
 			// Set status text color
 			statusText->SetForegroundColour(wxColour(0, 255, 0));
@@ -717,6 +735,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 		
 				// Enable connection controls
 				enableConnectionControls(true);
+				updatePrintUiAvailability();
 				refreshWindowLayout();
 			
 				// Log disconnection

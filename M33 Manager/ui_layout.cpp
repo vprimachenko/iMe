@@ -56,10 +56,10 @@ UiLayout buildMainLayout(wxFrame *frame) {
 	layout.printTabSizer = new wxBoxSizer(wxVERTICAL);
 	layout.printTab->SetSizer(layout.printTabSizer);
 
-	layout.connectedNotebook->AddPage(layout.mainTab, "Main");
-	layout.connectedNotebook->AddPage(layout.controlTab, "Control");
-	layout.connectedNotebook->AddPage(layout.firmwareTab, "Firmware");
 	layout.connectedNotebook->AddPage(layout.printTab, "Print");
+	layout.connectedNotebook->AddPage(layout.controlTab, "Control");
+	layout.connectedNotebook->AddPage(layout.mainTab, "Command");
+	layout.connectedNotebook->AddPage(layout.firmwareTab, "Manage");
 
 	layout.consoleSection = createPlainSectionPanel(layout.mainTab, layout.consoleSizer);
 	layout.mainTabSizer->Add(layout.consoleSection, 1, wxEXPAND | wxALL, 8);

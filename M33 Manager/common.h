@@ -40,5 +40,11 @@ Purpose: Returns the string converted to lower case
 */
 string toLowerCase(const string &text);
 
+/*
+Name: Get terminal log label
+Purpose: Returns the most suitable terminal label for the provided message
+*/
+string getTerminalLogLabel(const string &message);
+
 
 #endif

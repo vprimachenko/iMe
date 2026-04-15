@@ -75,6 +75,7 @@ class MyFrame: public wxFrame, public GuiHost {
 		Name: Switch to mode
 		Purpose: Switches printer into firmware or bootloader mode
 		*/
+		void onSwitchToModeButton(wxCommandEvent& event);
 		void switchToMode();
 		
 		/*
@@ -146,9 +147,10 @@ class MyFrame: public wxFrame, public GuiHost {
 		void runMotorsOff() override;
 		void runFanOn() override;
 		void runFanOff() override;
-		void runCalibrateBedPosition() override;
-		void runCalibrateBedOrientation() override;
-		void runSaveZAsZero() override;
+			void runCalibrateBedPosition() override;
+			void runCalibrateBedOrientation() override;
+			void runSaveCurrentPositionAsHome() override;
+			void runSaveZAsZero() override;
 		void loadPrintFile() override;
 		void startPrintJob() override;
 		void pausePrintJob() override;
@@ -174,6 +176,7 @@ class MyFrame: public wxFrame, public GuiHost {
 		void applyPrintJobStatus(const PrintJobStatus &status);
 		void restoreControlsForCurrentState();
 		bool isPrintJobBlockingUi() const;
+		void updatePrintUiAvailability();
 		
 		void savePrinterSetting(const string &settingName, const string &value) override;
 		
@@ -195,6 +198,7 @@ class MyFrame: public wxFrame, public GuiHost {
 	
 	// Private
 	private:
+		void shutdownFrameResources();
 		void workerMain();
 		bool startWorkerThread();
 		void stopWorkerThread();

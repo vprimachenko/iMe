@@ -6,6 +6,7 @@
 #ifndef WINDOWS
 	#include <unistd.h>
 #endif
+#include "../eeprom.h"
 #include "common.h"
 #include "printer_workflows.h"
 
@@ -37,6 +38,32 @@ string stripGcodeComment(const string &line) {
 
 	string strippedLine = endOffset == string::npos ? line : line.substr(0, endOffset);
 	return trimWhitespace(strippedLine);
+}
+
+string extractStatusDirective(const string &line) {
+	size_t commentOffset = line.find(';');
+	if(commentOffset == string::npos)
+		return "";
+
+	string commentText = trimWhitespace(line.substr(commentOffset + 1));
+	string commentTextLower = toLowerCase(commentText);
+
+	const string prefixes[] = {
+		"@m33 status:",
+		"@m33 status ",
+		"m33 status:",
+		"m33 status "
+	};
+
+	for(const string &prefix : prefixes) {
+		if(commentTextLower.rfind(prefix, 0) == 0) {
+			string statusText = trimWhitespace(commentText.substr(prefix.size()));
+			if(!statusText.empty())
+				return statusText;
+		}
+	}
+
+	return "";
 }
 
 void updatePreviewBounds(PreparedPrintJob &job, float x, float y, float z, bool &hasBounds) {
@@ -102,14 +129,29 @@ ThreadTaskResponse PrinterWorkflows::calibrateBedOrientation(const function<void
 	return executeCommandSequence({"G90", "G0 Z3 F90", "M109 S150", "M104 S0", "M107", "G32"}, logFunction);
 }
 
+ThreadTaskResponse PrinterWorkflows::saveCurrentPositionAsHome(const function<void(const string &message)> &logFunction) {
+	ThreadTaskResponse response = executeCommandSequence({"G92 X0 Y0"}, logFunction);
+	if(response.style & wxICON_ERROR)
+		return response;
+
+	if(!printer.eepromWriteFloat(EEPROM_LAST_RECORDED_X_VALUE_OFFSET, EEPROM_LAST_RECORDED_X_VALUE_LENGTH, 0.0f) ||
+		!printer.eepromWriteFloat(EEPROM_LAST_RECORDED_Y_VALUE_OFFSET, EEPROM_LAST_RECORDED_Y_VALUE_LENGTH, 0.0f) ||
+		!printer.eepromWriteInt(EEPROM_SAVED_X_STATE_OFFSET, EEPROM_SAVED_X_STATE_LENGTH, 1) ||
+		!printer.eepromWriteInt(EEPROM_SAVED_Y_STATE_OFFSET, EEPROM_SAVED_Y_STATE_LENGTH, 1))
+		return {"Failed to save the current X/Y position as home", wxOK | wxICON_ERROR | wxCENTRE};
+
+	if(!printer.collectPrinterInformation(false))
+		return {"Saved the current X/Y position as home, but failed to refresh printer information", wxOK | wxICON_WARNING | wxCENTRE};
+
+	return {"Current manual X/Y position saved as home. The printer will now treat this location as the homing corner.", wxOK | wxICON_INFORMATION | wxCENTRE};
+}
+
 ThreadTaskResponse PrinterWorkflows::saveZAsZero(const function<void(const string &message)> &logFunction) {
-	vector<string> sequence;
-	if(printer.getFirmwareType() == M3D || printer.getFirmwareType() == M3D_MOD) {
-		sequence.push_back("G91");
-		sequence.push_back("G0 Z0.1 F90");
-	}
-	sequence.push_back("G33");
-	return executeCommandSequence(sequence, logFunction);
+	ThreadTaskResponse response = executeCommandSequence({"G33"}, logFunction);
+	if(response.style & wxICON_ERROR)
+		return response;
+
+	return {"Current manual Z position saved as Z0. The printer will now treat this height as the bed reference.", wxOK | wxICON_INFORMATION | wxCENTRE};
 }
 
 PreparedPrintJob PrinterWorkflows::preparePrintJob(const string &filePath) {
@@ -131,9 +173,20 @@ PreparedPrintJob PrinterWorkflows::preparePrintJob(const string &filePath) {
 	bool absolutePositioning = true;
 	bool absoluteExtrusion = true;
 	bool hasBounds = false;
+	size_t skippedBedCommands = 0;
+	size_t skippedNoOpCommands = 0;
+	size_t normalizedCommands = 0;
+	size_t customStatusDirectives = 0;
+	string pendingStatusMessage;
 	while(getline(file, line)) {
 		lineNumber++;
 		job.totalLineCount++;
+
+		string statusDirective = extractStatusDirective(line);
+		if(!statusDirective.empty()) {
+			pendingStatusMessage = statusDirective;
+			customStatusDirectives++;
+		}
 
 		string sanitizedLine = stripGcodeComment(line);
 		if(sanitizedLine.empty())
@@ -153,8 +206,46 @@ PreparedPrintJob PrinterWorkflows::preparePrintJob(const string &filePath) {
 		if(printableCommand.empty())
 			continue;
 
+		if(gcode.hasValue('G')) {
+			const string gValue = gcode.getValue('G');
+			if(gValue == "20") {
+				job.errorLineNumber = lineNumber;
+				job.errorText = "Inch-based G-code (G20) is not supported for printing";
+				return job;
+			}
+			if(gValue == "21") {
+				skippedNoOpCommands++;
+				continue;
+			}
+			if(gValue == "28" && (gcode.hasParameter('X') || gcode.hasParameter('Y') || gcode.hasParameter('Z'))) {
+				printableCommand = "G28";
+				normalizedCommands++;
+			}
+		}
+
+		if(gcode.hasValue('M')) {
+			const string mValue = gcode.getValue('M');
+			if(mValue == "140" || mValue == "190") {
+				skippedBedCommands++;
+				continue;
+			}
+		}
+
+		if(gcode.hasValue('T') && !gcode.hasValue('G') && !gcode.hasValue('M')) {
+			if(gcode.getValue('T') == "0") {
+				skippedNoOpCommands++;
+				continue;
+			}
+
+			job.errorLineNumber = lineNumber;
+			job.errorText = "Unsupported tool selection on line " + to_string(lineNumber);
+			return job;
+		}
+
 		job.printableCommands.push_back(printableCommand);
 		job.parsedCommands.push_back(gcode);
+		job.statusMessages.push_back(pendingStatusMessage);
+		pendingStatusMessage.clear();
 		job.acceptedCommandCount++;
 
 		if(gcode.hasValue('G')) {
@@ -320,6 +411,40 @@ PreparedPrintJob PrinterWorkflows::preparePrintJob(const string &filePath) {
 
 	job.valid = true;
 	job.summaryText = "Loaded " + to_string(job.acceptedCommandCount) + " printable commands from " + to_string(job.totalLineCount) + " lines";
+	if(skippedBedCommands || skippedNoOpCommands || normalizedCommands || customStatusDirectives) {
+		job.summaryText += " (";
+		bool wroteSegment = false;
+		if(skippedBedCommands) {
+			job.summaryText += "skipped " + to_string(skippedBedCommands) + " bed command";
+			if(skippedBedCommands != 1)
+				job.summaryText += "s";
+			wroteSegment = true;
+		}
+		if(skippedNoOpCommands) {
+			if(wroteSegment)
+				job.summaryText += ", ";
+			job.summaryText += "skipped " + to_string(skippedNoOpCommands) + " no-op command";
+			if(skippedNoOpCommands != 1)
+				job.summaryText += "s";
+			wroteSegment = true;
+		}
+		if(normalizedCommands) {
+			if(wroteSegment)
+				job.summaryText += ", ";
+			job.summaryText += "normalized " + to_string(normalizedCommands) + " homing command";
+			if(normalizedCommands != 1)
+				job.summaryText += "s";
+			wroteSegment = true;
+		}
+		if(customStatusDirectives) {
+			if(wroteSegment)
+				job.summaryText += ", ";
+			job.summaryText += "found " + to_string(customStatusDirectives) + " custom status directive";
+			if(customStatusDirectives != 1)
+				job.summaryText += "s";
+		}
+		job.summaryText += ")";
+	}
 	return job;
 }
 
@@ -477,10 +602,10 @@ ThreadTaskResponse PrinterWorkflows::installDrivers() {
 		CloseHandle(processInfo.hProcess);
 		CloseHandle(processInfo.hThread);
 
-		if(!exitCode)
+		if(exitCode)
 			return {"Failed to install drivers", wxOK | wxICON_ERROR | wxCENTRE};
 
-		return {"Drivers successfully installed. You might need to reconnect the printer to the computer for the drivers to take effect.", wxOK | wxICON_INFORMATION | wxCENTRE};
+		return {"Driver installation was started successfully. Windows may still show a trust prompt before the driver is fully installed. You might need to reconnect the printer to the computer afterward.", wxOK | wxICON_INFORMATION | wxCENTRE};
 	#endif
 
 	#ifdef LINUX

@@ -43,9 +43,10 @@ class ControlTabController {
 		wxButton *motorsOffButton = nullptr;
 		wxButton *fanOnButton = nullptr;
 		wxButton *fanOffButton = nullptr;
-		wxButton *calibrateBedPositionButton = nullptr;
-		wxButton *calibrateBedOrientationButton = nullptr;
-		wxButton *saveZAsZeroButton = nullptr;
+			wxButton *calibrateBedPositionButton = nullptr;
+			wxButton *calibrateBedOrientationButton = nullptr;
+			wxButton *saveCurrentPositionAsHomeButton = nullptr;
+			wxButton *saveZAsZeroButton = nullptr;
 };
 
 #endif

@@ -1,13 +1,18 @@
 #include <wx/filedlg.h>
 #include "gui.h"
 
+void MyFrame::onSwitchToModeButton(wxCommandEvent& event) {
+	switchToMode();
+}
+
 void MyFrame::switchToMode() {
 
 	// Disable mode switch button
 	switchToModeButton->Enable(false);
 	
 	// Set new mode
-	operatingModes newOperatingMode = switchToModeButton->GetLabel() == "Switch to firmware mode" ? FIRMWARE : BOOTLOADER;
+	wxString buttonLabel = switchToModeButton->GetLabel();
+	operatingModes newOperatingMode = buttonLabel == "Switch to firmware mode" ? FIRMWARE : BOOTLOADER;
 
 	// Lock
 	wxCriticalSectionLocker lock(criticalLock);
@@ -530,6 +535,19 @@ void MyFrame::runCalibrateBedOrientation() {
 	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
 }
 
+void MyFrame::runSaveCurrentPositionAsHome() {
+	wxCriticalSectionLocker lock(criticalLock);
+	threadStartCallbackQueue.push([=]() -> void {});
+	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+		return workflows.saveCurrentPositionAsHome([=](const string &message) -> void {
+			logToConsole(message);
+		});
+	});
+	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+		wxMessageBox(response.message, "M33 Manager", response.style);
+	});
+}
+
 void MyFrame::runSaveZAsZero() {
 	wxCriticalSectionLocker lock(criticalLock);
 	threadStartCallbackQueue.push([=]() -> void {});
@@ -538,5 +556,7 @@ void MyFrame::runSaveZAsZero() {
 			logToConsole(message);
 		});
 	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+		wxMessageBox(response.message, "M33 Manager", response.style);
+	});
 }

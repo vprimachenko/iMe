@@ -1,6 +1,6 @@
 # Target platform options: WINDOWS32, WINDOWS64, MACOS, LINUX32, LINUX64
 NAME = "M33 Manager"
-VERSION = 0.16
+VERSION = "0.17-V"
 HOST_OS := $(shell uname -s)
 HOST_ARCH := $(shell uname -m)
 WX_CONFIG := $(shell command -v wx-config 2>/dev/null || command -v wx-config-3.2 2>/dev/null)

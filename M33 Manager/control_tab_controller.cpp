@@ -1,5 +1,6 @@
 #include <iomanip>
 #include <sstream>
+#include <wx/msgdlg.h>
 #include "control_tab_controller.h"
 
 using namespace std;
@@ -19,8 +20,8 @@ void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 		host->runMoveX(false, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
 	});
 
-	homeMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Home");
-	homeMovementButton->SetMinSize(wxSize(60, -1));
+	homeMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Auto-center X/Y");
+	homeMovementButton->SetMinSize(wxSize(130, -1));
 	homeMovementButton->Enable(false);
 	homeMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
 		host->runHome();
@@ -164,15 +165,36 @@ void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 		host->runCalibrateBedOrientation();
 	});
 
-	saveZAsZeroButton = new wxButton(ui.calibrationSection, wxID_ANY, "Save Z as 0");
+	saveCurrentPositionAsHomeButton = new wxButton(ui.calibrationSection, wxID_ANY, "Set current X/Y as home");
+	saveCurrentPositionAsHomeButton->Enable(false);
+	saveCurrentPositionAsHomeButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
+		wxMessageDialog confirmDialog(
+			ui.calibrationSection,
+			"Use the movement controls to position the print head at the desired manual home corner, then save that current X/Y position as home.\n\nThis does not perform an automatic homing move. Continue?",
+			"M33 Manager",
+			wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION
+		);
+		if(confirmDialog.ShowModal() == wxID_YES)
+			host->runSaveCurrentPositionAsHome();
+	});
+
+	saveZAsZeroButton = new wxButton(ui.calibrationSection, wxID_ANY, "Set current height as Z0");
 	saveZAsZeroButton->Enable(false);
 	saveZAsZeroButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runSaveZAsZero();
+		wxMessageDialog confirmDialog(
+			ui.calibrationSection,
+			"Use the movement controls to position the nozzle at the desired first-layer height, then save that current height as Z0.\n\nThis does not probe the bed. Continue?",
+			"M33 Manager",
+			wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION
+		);
+		if(confirmDialog.ShowModal() == wxID_YES)
+			host->runSaveZAsZero();
 	});
 
 	wxBoxSizer *calibrationSectionSizer = new wxBoxSizer(wxVERTICAL);
 	calibrationSectionSizer->Add(calibrateBedPositionButton, 0, wxEXPAND | wxBOTTOM, 8);
 	calibrationSectionSizer->Add(calibrateBedOrientationButton, 0, wxEXPAND | wxBOTTOM, 8);
+	calibrationSectionSizer->Add(saveCurrentPositionAsHomeButton, 0, wxEXPAND | wxBOTTOM, 8);
 	calibrationSectionSizer->Add(saveZAsZeroButton, 0, wxEXPAND);
 	ui.calibrationSizer->Add(calibrationSectionSizer, 1, wxEXPAND | wxALL, 8);
 }
@@ -208,6 +230,7 @@ void ControlTabController::enableMiscellaneousControls(bool enable) {
 void ControlTabController::enableCalibrationControls(bool enable) {
 	calibrateBedPositionButton->Enable(enable);
 	calibrateBedOrientationButton->Enable(enable);
+	saveCurrentPositionAsHomeButton->Enable(enable);
 	saveZAsZeroButton->Enable(enable);
 }
 
