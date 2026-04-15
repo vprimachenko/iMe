@@ -1,8 +1,28 @@
 # Target platform options: WINDOWS32, WINDOWS64, MACOS, LINUX32, LINUX64
 NAME = "M33 Manager"
 VERSION = 0.16
-TARGET_PLATFORM = LINUX64
-USE_GUI = TRUE
+HOST_OS := $(shell uname -s)
+HOST_ARCH := $(shell uname -m)
+WX_CONFIG := $(shell command -v wx-config 2>/dev/null || command -v wx-config-3.2 2>/dev/null)
+
+ifeq ($(HOST_OS),Darwin)
+	DEFAULT_TARGET_PLATFORM = MACOS
+else ifeq ($(HOST_ARCH),x86_64)
+	DEFAULT_TARGET_PLATFORM = LINUX64
+else
+	DEFAULT_TARGET_PLATFORM = LINUX32
+endif
+
+TARGET_PLATFORM ?= $(DEFAULT_TARGET_PLATFORM)
+USE_GUI ?= TRUE
+
+ifeq ($(USE_GUI),TRUE)
+ifeq ($(WX_CONFIG),)
+$(warning wx-config not found; building CLI binary with USE_GUI=FALSE)
+USE_GUI = FALSE
+endif
+endif
+
 IME_ROM_VERSION_STRING = 1900000125
 M3D_ROM_VERSION_STRING = 2016040401
 
@@ -54,12 +74,12 @@ ifeq ($(TARGET_PLATFORM), MACOS)
 	EXECUTABLE = "$(PROGRAM_NAME)"
 	CC = "clang++"
 	CCP = "clang++"
-	CFLAGS += -framework IOKit -framework CoreFoundation -stdlib=libc++ -arch i386 -arch x86_64
+	CFLAGS += -framework IOKit -framework CoreFoundation -stdlib=libc++
 	CFLAGS_GENERIC += -stdlib=libc++
 	ARCHIVE = "$(PROGRAM_NAME) macOS.dmg"
 	ifeq ($(USE_GUI), TRUE)
 		SRCS += gui.cpp
-		LIBS += -D USE_GUI `wx-config --prefix=/usr --cxxflags --libs --static`
+		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
 	endif
 	STRIP = "strip"
 endif
@@ -74,7 +94,7 @@ ifeq ($(TARGET_PLATFORM), LINUX32)
 	ARCHIVE = "$(PROGRAM_NAME) Linux.zip"
 	ifeq ($(USE_GUI), TRUE)
 		SRCS += gui.cpp
-		LIBS += -D USE_GUI `wx-config --prefix=/usr --cxxflags --libs --static`
+		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
 	endif
 	STRIP = "strip"
 endif
@@ -89,7 +109,7 @@ ifeq ($(TARGET_PLATFORM), LINUX64)
 	ARCHIVE = "$(PROGRAM_NAME) Linux.zip"
 	ifeq ($(USE_GUI), TRUE)
 		SRCS += gui.cpp
-		LIBS += -D USE_GUI `wx-config --prefix=/usr --cxxflags --libs --static`
+		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
 	endif
 	STRIP = "strip"
 endif
