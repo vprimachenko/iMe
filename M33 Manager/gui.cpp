@@ -109,7 +109,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	ui.statusRowSizer->Add(new wxStaticText(ui.statusRow, wxID_ANY, "Status:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
 	statusText = new wxStaticText(ui.statusRow, wxID_ANY, "Not connected");
 	statusText->SetForegroundColour(wxColour(255, 0, 0));
-	ui.statusRowSizer->Add(statusText, 1, wxALIGN_CENTER_VERTICAL);
+	ui.statusRowSizer->Add(statusText, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
 	ui.connectionContentSizer->Add(ui.statusRow, 0, wxEXPAND | wxTOP, 8);
 	
 	// Create log timer
@@ -146,23 +146,20 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	installFirmwareFromFileButton->Enable(false);
 	installFirmwareFromFileButton->Bind(wxEVT_BUTTON, &MyFrame::installFirmwareFromFile, this);
 	
-	switchToModeButton = new wxButton(ui.firmwareSection, wxID_ANY, "Switch to bootloader mode");
+	switchToModeButton = new wxButton(ui.statusRow, wxID_ANY, "Switch to bootloader mode");
 	switchToModeButton->Enable(false);
 	switchToModeButton->Bind(wxEVT_BUTTON, &MyFrame::switchToMode, this);
+	ui.statusRowSizer->Add(switchToModeButton, 0, wxALIGN_CENTER_VERTICAL);
 
 	wxBoxSizer *firmwareRowsSizer = new wxBoxSizer(wxVERTICAL);
-	wxBoxSizer *firmwareRow1Sizer = new wxBoxSizer(wxHORIZONTAL);
-	firmwareRow1Sizer->Add(installImeFirmwareButton, 1, wxEXPAND | wxRIGHT, 8);
-	firmwareRow1Sizer->Add(installM3dFirmwareButton, 1, wxEXPAND);
-	wxBoxSizer *firmwareRow2Sizer = new wxBoxSizer(wxHORIZONTAL);
-	firmwareRow2Sizer->Add(installFirmwareFromFileButton, 1, wxEXPAND | wxRIGHT, 8);
-	firmwareRow2Sizer->Add(switchToModeButton, 1, wxEXPAND);
-	firmwareRowsSizer->Add(firmwareRow1Sizer, 0, wxEXPAND | wxBOTTOM, 8);
-	firmwareRowsSizer->Add(firmwareRow2Sizer, 0, wxEXPAND);
+	firmwareRowsSizer->Add(installImeFirmwareButton, 0, wxEXPAND | wxBOTTOM, 8);
+	firmwareRowsSizer->Add(installM3dFirmwareButton, 0, wxEXPAND | wxBOTTOM, 8);
+	firmwareRowsSizer->Add(installFirmwareFromFileButton, 0, wxEXPAND);
 	#ifndef MACOS
-		firmwareRowsSizer->Add(installDriversButton, 0, wxTOP | wxEXPAND, 8);
+		firmwareRowsSizer->AddSpacer(12);
+		firmwareRowsSizer->Add(installDriversButton, 0, wxEXPAND);
 	#endif
-	ui.firmwareSizer->Add(firmwareRowsSizer, 1, wxEXPAND | wxALL, 8);
+	ui.firmwareSizer->Add(firmwareRowsSizer, 0, wxEXPAND);
 
 	// Create console section
 	consoleOutput = new wxTextCtrl(ui.consoleSection, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH);
@@ -181,6 +178,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	
 	commandInput = new wxTextCtrl(ui.consoleSection, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
 	commandInput->SetHint("Command");
+	commandInput->Enable(false);
 	commandInput->Bind(wxEVT_TEXT_ENTER, &MyFrame::sendCommandManually, this);
 	
 	sendCommandButton = new wxButton(ui.consoleSection, wxID_ANY, "Send");
@@ -193,7 +191,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	consoleCommandSizer->Add(commandInput, 1, wxEXPAND | wxRIGHT, 8);
 	consoleCommandSizer->Add(sendCommandButton, 0, wxEXPAND);
 	consoleSectionSizer->Add(consoleCommandSizer, 0, wxEXPAND);
-	ui.consoleSizer->Add(consoleSectionSizer, 1, wxEXPAND | wxALL, 8);
+	ui.consoleSizer->Add(consoleSectionSizer, 1, wxEXPAND);
 
 	// Create movement section
 	backwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↑");
@@ -485,10 +483,6 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#endif
 }
 
-void MyFrame::show(wxShowEvent &event) {
-	event.Skip();
-}
-
 wxThread::ExitCode MyFrame::Entry() {
 
 	// Loop until destroyed
@@ -657,6 +651,7 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 
 				// Enable firmware controls
 				enableFirmwareControls(true);
+				enableCommandControls(true);
 				
 				// Change connection button to disconnect	
 				connectionButton->SetLabel("Disconnect");
@@ -721,6 +716,7 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 
 			// Disable firmware controls
 			enableFirmwareControls(false);
+			enableCommandControls(false);
 			
 			// Disable movement controls
 			enableMovementControls(false);
@@ -766,6 +762,7 @@ void MyFrame::switchToMode(wxCommandEvent& event) {
 	
 		// Disable firmware controls
 		enableFirmwareControls(false);
+		enableCommandControls(false);
 		
 		// Disable movement controls
 		enableMovementControls(false);
@@ -815,10 +812,12 @@ void MyFrame::switchToMode(wxCommandEvent& event) {
 		connectionButton->Enable(true);
 
 		// Check if connected to printer
-		if(printer.isConnected())
+		if(printer.isConnected()) {
 
 			// Enable firmware controls
 			enableFirmwareControls(true);
+			enableCommandControls(true);
+		}
 
 		// Otherwise
 		else
@@ -850,6 +849,7 @@ void MyFrame::installImeFirmware(wxCommandEvent& event) {
 	
 		// Disable firmware controls
 		enableFirmwareControls(false);
+		enableCommandControls(false);
 		
 		// Disable movement controls
 		enableMovementControls(false);
@@ -911,6 +911,7 @@ void MyFrame::installImeFirmware(wxCommandEvent& event) {
 
 			// Enable firmware controls
 			enableFirmwareControls(true);
+			enableCommandControls(true);
 			
 			// Log printer mode
 			logToConsole(static_cast<string>("Printer is in ") + (printer.getOperatingMode() == BOOTLOADER ? "bootloader" : "firmware") + " mode");
@@ -956,6 +957,7 @@ void MyFrame::installM3dFirmware(wxCommandEvent& event) {
 	
 		// Disable firmware controls
 		enableFirmwareControls(false);
+		enableCommandControls(false);
 		
 		// Disable movement controls
 		enableMovementControls(false);
@@ -1017,6 +1019,7 @@ void MyFrame::installM3dFirmware(wxCommandEvent& event) {
 
 			// Enable firmware controls
 			enableFirmwareControls(true);
+			enableCommandControls(true);
 			
 			// Log printer mode
 			logToConsole(static_cast<string>("Printer is in ") + (printer.getOperatingMode() == BOOTLOADER ? "bootloader" : "firmware") + " mode");
@@ -1071,6 +1074,7 @@ void MyFrame::installFirmwareFromFile(wxCommandEvent& event) {
 	
 			// Disable firmware controls
 			enableFirmwareControls(false);
+			enableCommandControls(false);
 			
 			// Disable movement controls
 			enableMovementControls(false);
@@ -1113,6 +1117,7 @@ void MyFrame::installFirmwareFromFile(wxCommandEvent& event) {
 
 				// Enable firmware controls
 				enableFirmwareControls(true);
+				enableCommandControls(true);
 				
 				// Log printer mode
 				logToConsole(static_cast<string>("Printer is in ") + (printer.getOperatingMode() == BOOTLOADER ? "bootloader" : "firmware") + " mode");
@@ -1405,6 +1410,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 				
 						// Disable movement controls
 						enableMovementControls(false);
+						enableCommandControls(false);
 					
 						// Disable settings controls
 						enableSettingsControls(false);
@@ -1427,6 +1433,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 					
 							// Enable movement controls
 							enableMovementControls(true);
+							enableCommandControls(true);
 						
 							// Disable settings controls
 							enableSettingsControls(false);
@@ -1450,6 +1457,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 					
 							// Disable movement controls
 							enableMovementControls(false);
+							enableCommandControls(true);
 						
 							// Enable settings controls
 							enableSettingsControls(true);
@@ -1470,6 +1478,7 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 				
 							// Disable movement controls
 							enableMovementControls(false);
+							enableCommandControls(false);
 						
 							// Disable settings controls
 							enableSettingsControls(false);
@@ -1509,6 +1518,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 			// Show connected layout and status row
 			setStatusRowVisible(true);
 			setConnectedUiVisible(true);
+			enableCommandControls(true);
 		
 			// Disable connection controls
 			enableConnectionControls(false);
@@ -1532,6 +1542,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 				
 				// Disable firmware controls
 				enableFirmwareControls(false);
+				enableCommandControls(false);
 				
 				// Disable movement controls
 				enableMovementControls(false);
@@ -1692,6 +1703,13 @@ void MyFrame::enableConnectionControls(bool enable) {
 	connectionButton->Enable(enable);
 }
 
+void MyFrame::enableCommandControls(bool enable) {
+
+	// Enable or disable manual command controls
+	commandInput->Enable(enable);
+	sendCommandButton->Enable(enable);
+}
+
 void MyFrame::enableFirmwareControls(bool enable) {
 
 	// Enable or disable firmware controls
@@ -1699,7 +1717,6 @@ void MyFrame::enableFirmwareControls(bool enable) {
 	installImeFirmwareButton->Enable(enable);
 	installM3dFirmwareButton->Enable(enable);
 	switchToModeButton->Enable(enable);
-	sendCommandButton->Enable(enable);
 }
 
 void MyFrame::enableMovementControls(bool enable) {
@@ -1822,6 +1839,7 @@ void MyFrame::sendCommandManually(wxCommandEvent& event) {
 
 					// Disable firmware controls
 					enableFirmwareControls(false);
+					enableCommandControls(false);
 					
 					// Disable movement controls
 					enableMovementControls(false);
@@ -1843,10 +1861,12 @@ void MyFrame::sendCommandManually(wxCommandEvent& event) {
 					connectionButton->Enable(true);
 
 					// Check if connected to printer
-					if(printer.isConnected())
+					if(printer.isConnected()) {
 
 						// Enable firmware controls
 						enableFirmwareControls(true);
+						enableCommandControls(true);
+					}
 
 					// Otherwise
 					else
@@ -2099,6 +2119,7 @@ void MyFrame::checkInvalidValues() {
 
 								// Disable firmware controls
 								enableFirmwareControls(false);
+								enableCommandControls(false);
 	
 								// Disable movement controls
 								enableMovementControls(false);
@@ -2153,6 +2174,7 @@ void MyFrame::checkInvalidValues() {
 	
 									// Disable firmware controls
 									enableFirmwareControls(false);
+									enableCommandControls(false);
 		
 									// Disable movement controls
 									enableMovementControls(false);
@@ -2200,6 +2222,7 @@ void MyFrame::checkInvalidValues() {
 
 											// Enable firmware controls
 											enableFirmwareControls(true);
+											enableCommandControls(true);
 								
 											// Enable movement controls
 											enableMovementControls(true);
@@ -2285,6 +2308,7 @@ void MyFrame::checkInvalidValues() {
 
 								// Disable firmware controls
 								enableFirmwareControls(false);
+								enableCommandControls(false);
 	
 								// Disable movement controls
 								enableMovementControls(false);
@@ -2339,6 +2363,7 @@ void MyFrame::checkInvalidValues() {
 	
 									// Disable firmware controls
 									enableFirmwareControls(false);
+									enableCommandControls(false);
 		
 									// Disable movement controls
 									enableMovementControls(false);
@@ -2389,6 +2414,7 @@ void MyFrame::checkInvalidValues() {
 
 											// Enable firmware controls
 											enableFirmwareControls(true);
+											enableCommandControls(true);
 								
 											// Enable movement controls
 											enableMovementControls(true);

@@ -4,6 +4,7 @@
 #include <wx/panel.h>
 #include <wx/sizer.h>
 #include <wx/frame.h>
+#include <wx/notebook.h>
 #include <wx/statbox.h>
 
 struct UiLayout {
@@ -18,13 +19,18 @@ struct UiLayout {
 
 	wxPanel *connectedContent = nullptr;
 	wxBoxSizer *connectedContentSizer = nullptr;
-	wxBoxSizer *connectedLeftColumnSizer = nullptr;
-	wxBoxSizer *connectedRightColumnSizer = nullptr;
+	wxNotebook *connectedNotebook = nullptr;
+	wxPanel *mainTab = nullptr;
+	wxBoxSizer *mainTabSizer = nullptr;
+	wxPanel *controlTab = nullptr;
+	wxBoxSizer *controlTabSizer = nullptr;
+	wxPanel *firmwareTab = nullptr;
+	wxBoxSizer *firmwareTabSizer = nullptr;
 
 	wxPanel *firmwareSection = nullptr;
-	wxStaticBoxSizer *firmwareSizer = nullptr;
+	wxBoxSizer *firmwareSizer = nullptr;
 	wxPanel *consoleSection = nullptr;
-	wxStaticBoxSizer *consoleSizer = nullptr;
+	wxBoxSizer *consoleSizer = nullptr;
 	wxPanel *movementSection = nullptr;
 	wxStaticBoxSizer *movementSizer = nullptr;
 	wxPanel *settingsSection = nullptr;

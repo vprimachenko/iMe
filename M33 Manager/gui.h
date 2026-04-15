@@ -73,12 +73,6 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		void close(wxCloseEvent& event);
 		
 		/*
-		Name: Show
-		Purpose: Event that's called when frame is shown
-		*/
-		void show(wxShowEvent &event);
-		
-		/*
 		Name: Change printer connection
 		Purpose: Connects to or disconnects from the printer
 		*/
@@ -179,6 +173,7 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		Purpose: Enables or disabled groups of controls
 		*/
 		void enableConnectionControls(bool enable);
+		void enableCommandControls(bool enable);
 		void enableFirmwareControls(bool enable);
 		void enableMovementControls(bool enable);
 		void enableSettingsControls(bool enable);

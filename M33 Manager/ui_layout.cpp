@@ -10,6 +10,13 @@ wxPanel *createSectionPanel(wxWindow *parent, const wxString &title, wxStaticBox
 	return panel;
 }
 
+wxPanel *createPlainSectionPanel(wxWindow *parent, wxBoxSizer *&sectionSizer) {
+	wxPanel *panel = new wxPanel(parent, wxID_ANY);
+	sectionSizer = new wxBoxSizer(wxVERTICAL);
+	panel->SetSizer(sectionSizer);
+	return panel;
+}
+
 }
 
 UiLayout buildMainLayout(wxFrame *frame) {
@@ -28,26 +35,43 @@ UiLayout buildMainLayout(wxFrame *frame) {
 	layout.statusRow->SetSizer(layout.statusRowSizer);
 
 	layout.connectedContent = new wxPanel(layout.rootPanel, wxID_ANY);
-	layout.connectedContentSizer = new wxBoxSizer(wxHORIZONTAL);
+	layout.connectedContentSizer = new wxBoxSizer(wxVERTICAL);
 	layout.connectedContent->SetSizer(layout.connectedContentSizer);
-	layout.connectedLeftColumnSizer = new wxBoxSizer(wxVERTICAL);
-	layout.connectedRightColumnSizer = new wxBoxSizer(wxVERTICAL);
-	layout.connectedContentSizer->Add(layout.connectedLeftColumnSizer, 1, wxEXPAND | wxRIGHT, 8);
-	layout.connectedContentSizer->Add(layout.connectedRightColumnSizer, 0, wxEXPAND);
+	layout.connectedNotebook = new wxNotebook(layout.connectedContent, wxID_ANY);
+	layout.connectedContentSizer->Add(layout.connectedNotebook, 1, wxEXPAND);
 
-	layout.firmwareSection = createSectionPanel(layout.connectedContent, "Firmware", layout.firmwareSizer);
-	layout.consoleSection = createSectionPanel(layout.connectedContent, "Console", layout.consoleSizer);
-	layout.movementSection = createSectionPanel(layout.connectedContent, "Movement", layout.movementSizer);
-	layout.settingsSection = createSectionPanel(layout.connectedContent, "Settings", layout.settingsSizer);
-	layout.miscellaneousSection = createSectionPanel(layout.connectedContent, "Miscellaneous", layout.miscellaneousSizer);
-	layout.calibrationSection = createSectionPanel(layout.connectedContent, "Calibration", layout.calibrationSizer);
+	layout.mainTab = new wxPanel(layout.connectedNotebook, wxID_ANY);
+	layout.mainTabSizer = new wxBoxSizer(wxVERTICAL);
+	layout.mainTab->SetSizer(layout.mainTabSizer);
 
-	layout.connectedLeftColumnSizer->Add(layout.firmwareSection, 0, wxEXPAND | wxBOTTOM, 8);
-	layout.connectedLeftColumnSizer->Add(layout.consoleSection, 1, wxEXPAND);
-	layout.connectedRightColumnSizer->Add(layout.movementSection, 0, wxEXPAND | wxBOTTOM, 8);
-	layout.connectedRightColumnSizer->Add(layout.settingsSection, 0, wxEXPAND | wxBOTTOM, 8);
-	layout.connectedRightColumnSizer->Add(layout.miscellaneousSection, 0, wxEXPAND | wxBOTTOM, 8);
-	layout.connectedRightColumnSizer->Add(layout.calibrationSection, 0, wxEXPAND);
+	layout.controlTab = new wxPanel(layout.connectedNotebook, wxID_ANY);
+	layout.controlTabSizer = new wxBoxSizer(wxVERTICAL);
+	layout.controlTab->SetSizer(layout.controlTabSizer);
+
+	layout.firmwareTab = new wxPanel(layout.connectedNotebook, wxID_ANY);
+	layout.firmwareTabSizer = new wxBoxSizer(wxVERTICAL);
+	layout.firmwareTab->SetSizer(layout.firmwareTabSizer);
+
+	layout.connectedNotebook->AddPage(layout.mainTab, "Main");
+	layout.connectedNotebook->AddPage(layout.controlTab, "Control");
+	layout.connectedNotebook->AddPage(layout.firmwareTab, "Firmware");
+
+	layout.consoleSection = createPlainSectionPanel(layout.mainTab, layout.consoleSizer);
+	layout.mainTabSizer->Add(layout.consoleSection, 1, wxEXPAND | wxALL, 8);
+
+	layout.movementSection = createSectionPanel(layout.controlTab, "Movement", layout.movementSizer);
+	layout.settingsSection = createSectionPanel(layout.controlTab, "Settings", layout.settingsSizer);
+	layout.miscellaneousSection = createSectionPanel(layout.controlTab, "Miscellaneous", layout.miscellaneousSizer);
+	layout.calibrationSection = createSectionPanel(layout.controlTab, "Calibration", layout.calibrationSizer);
+	layout.controlTabSizer->Add(layout.movementSection, 0, wxEXPAND | wxALL, 8);
+	wxBoxSizer *controlLowerRowSizer = new wxBoxSizer(wxHORIZONTAL);
+	controlLowerRowSizer->Add(layout.settingsSection, 1, wxEXPAND | wxRIGHT, 8);
+	controlLowerRowSizer->Add(layout.miscellaneousSection, 1, wxEXPAND | wxRIGHT, 8);
+	controlLowerRowSizer->Add(layout.calibrationSection, 1, wxEXPAND);
+	layout.controlTabSizer->Add(controlLowerRowSizer, 0, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 8);
+
+	layout.firmwareSection = createPlainSectionPanel(layout.firmwareTab, layout.firmwareSizer);
+	layout.firmwareTabSizer->Add(layout.firmwareSection, 0, wxEXPAND | wxALL, 8);
 
 	layout.footerSection = new wxPanel(layout.rootPanel, wxID_ANY);
 	layout.footerSizer = new wxBoxSizer(wxHORIZONTAL);
