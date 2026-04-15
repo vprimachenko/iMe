@@ -5,20 +5,19 @@
 
 using namespace std;
 
+namespace {
+constexpr int SAFE_MANUAL_FEED_RATE_XY = 600;
+constexpr int SAFE_MANUAL_FEED_RATE_Z = 30;
+}
+
 void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 	host = &newHost;
 
 	backwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↑");
 	backwardMovementButton->Enable(false);
-	backwardMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runMoveY(true, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
-	});
 
 	leftMovementButton = new wxButton(ui.movementSection, wxID_ANY, "←");
 	leftMovementButton->Enable(false);
-	leftMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runMoveX(false, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
-	});
 
 	homeMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Auto-center X/Y");
 	homeMovementButton->SetMinSize(wxSize(130, -1));
@@ -29,68 +28,116 @@ void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 
 	rightMovementButton = new wxButton(ui.movementSection, wxID_ANY, "→");
 	rightMovementButton->Enable(false);
-	rightMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runMoveX(true, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
-	});
 
 	forwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↓");
 	forwardMovementButton->Enable(false);
-	forwardMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runMoveY(false, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
-	});
 
 	upMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Z+");
 	upMovementButton->Enable(false);
-	upMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runMoveZ(true, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
-	});
 
 	downMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Z-");
 	downMovementButton->Enable(false);
-	downMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runMoveZ(false, static_cast<double>(distanceMovementSlider->GetValue()) / 1000, feedRateMovementSlider->GetValue());
-	});
 
-	distanceMovementText = new wxStaticText(ui.movementSection, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-	distanceMovementText->SetMinSize(wxSize(180, -1));
+	auto bindMoveButton = [this](wxButton *button, const function<void()> &moveAction) {
+		movementStepButtons.push_back(button);
+		button->Bind(wxEVT_BUTTON, [moveAction](wxCommandEvent &event) {
+			moveAction();
+		});
+	};
 
-	distanceMovementSlider = new wxSlider(ui.movementSection, wxID_ANY, 10 * 1000, 0.001 * 1000, 100 * 1000);
-	distanceMovementSlider->SetMinSize(wxSize(180, -1));
-	distanceMovementSlider->Enable(false);
-	distanceMovementSlider->Bind(wxEVT_COMMAND_SLIDER_UPDATED, [=](wxCommandEvent &event) {
-		updateDistanceMovementText();
-	});
-	updateDistanceMovementText();
+	auto createStepButton = [=](const string &label) {
+		wxButton *button = new wxButton(ui.movementSection, wxID_ANY, label);
+		button->SetMinSize(wxSize(54, -1));
+		button->Enable(false);
+		return button;
+	};
 
-	feedRateMovementText = new wxStaticText(ui.movementSection, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-	feedRateMovementText->SetMinSize(wxSize(180, -1));
+	movementFeedRateText = new wxStaticText(
+		ui.movementSection,
+		wxID_ANY,
+		"Manual move speeds: X/Y 600 mm/min, Z 30 mm/min",
+		wxDefaultPosition,
+		wxDefaultSize,
+		wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE
+	);
+	movementFeedRateText->SetMinSize(wxSize(260, -1));
 
-	feedRateMovementSlider = new wxSlider(ui.movementSection, wxID_ANY, DEFAULT_X_SPEED, 1, 4800);
-	feedRateMovementSlider->SetMinSize(wxSize(180, -1));
-	feedRateMovementSlider->Enable(false);
-	feedRateMovementSlider->Bind(wxEVT_COMMAND_SLIDER_UPDATED, [=](wxCommandEvent &event) {
-		updateFeedRateMovementText();
-	});
-	updateFeedRateMovementText();
+	wxButton *yLargeButton = createStepButton("10");
+	wxButton *yMediumButton = createStepButton("1");
+	wxButton *ySmallButton = createStepButton("0.1");
+	wxButton *xNegativeLargeButton = createStepButton("10");
+	wxButton *xNegativeMediumButton = createStepButton("1");
+	wxButton *xNegativeSmallButton = createStepButton("0.1");
+	wxButton *xPositiveSmallButton = createStepButton("0.1");
+	wxButton *xPositiveMediumButton = createStepButton("1");
+	wxButton *xPositiveLargeButton = createStepButton("10");
+	wxButton *yNegativeSmallButton = createStepButton("0.1");
+	wxButton *yNegativeMediumButton = createStepButton("1");
+	wxButton *yNegativeLargeButton = createStepButton("10");
+	wxButton *zLargeButton = createStepButton("10");
+	wxButton *zMediumButton = createStepButton("1");
+	wxButton *zSmallButton = createStepButton("0.1");
+	wxButton *zNegativeSmallButton = createStepButton("0.1");
+	wxButton *zNegativeMediumButton = createStepButton("1");
+	wxButton *zNegativeLargeButton = createStepButton("10");
+
+	bindMoveButton(yLargeButton, [=]() { host->runMoveY(true, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yMediumButton, [=]() { host->runMoveY(true, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(ySmallButton, [=]() { host->runMoveY(true, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xNegativeLargeButton, [=]() { host->runMoveX(false, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xNegativeMediumButton, [=]() { host->runMoveX(false, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xNegativeSmallButton, [=]() { host->runMoveX(false, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xPositiveSmallButton, [=]() { host->runMoveX(true, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xPositiveMediumButton, [=]() { host->runMoveX(true, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xPositiveLargeButton, [=]() { host->runMoveX(true, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yNegativeSmallButton, [=]() { host->runMoveY(false, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yNegativeMediumButton, [=]() { host->runMoveY(false, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yNegativeLargeButton, [=]() { host->runMoveY(false, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(zLargeButton, [=]() { host->runMoveZ(true, 10.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zMediumButton, [=]() { host->runMoveZ(true, 1.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zSmallButton, [=]() { host->runMoveZ(true, 0.1, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zNegativeSmallButton, [=]() { host->runMoveZ(false, 0.1, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zNegativeMediumButton, [=]() { host->runMoveZ(false, 1.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zNegativeLargeButton, [=]() { host->runMoveZ(false, 10.0, SAFE_MANUAL_FEED_RATE_Z); });
 
 	wxGridBagSizer *movementGridSizer = new wxGridBagSizer(8, 8);
-	movementGridSizer->Add(backwardMovementButton, wxGBPosition(0, 1));
-	movementGridSizer->Add(leftMovementButton, wxGBPosition(1, 0));
-	movementGridSizer->Add(homeMovementButton, wxGBPosition(1, 1));
-	movementGridSizer->Add(rightMovementButton, wxGBPosition(1, 2));
-	movementGridSizer->Add(forwardMovementButton, wxGBPosition(2, 1));
-	movementGridSizer->Add(upMovementButton, wxGBPosition(0, 3));
-	movementGridSizer->Add(downMovementButton, wxGBPosition(1, 3));
-	movementGridSizer->AddGrowableCol(0);
-	movementGridSizer->AddGrowableCol(1);
-	movementGridSizer->AddGrowableCol(2);
-	movementGridSizer->AddGrowableCol(3);
+	backwardMovementButton->SetMinSize(wxSize(56, -1));
+	leftMovementButton->SetMinSize(wxSize(56, -1));
+	rightMovementButton->SetMinSize(wxSize(56, -1));
+	forwardMovementButton->SetMinSize(wxSize(56, -1));
+	upMovementButton->SetMinSize(wxSize(56, -1));
+	downMovementButton->SetMinSize(wxSize(56, -1));
+
+	movementGridSizer->Add(yLargeButton, wxGBPosition(0, 1));
+	movementGridSizer->Add(yMediumButton, wxGBPosition(0, 2));
+	movementGridSizer->Add(ySmallButton, wxGBPosition(0, 3));
+	movementGridSizer->Add(backwardMovementButton, wxGBPosition(1, 2));
+	movementGridSizer->Add(xNegativeLargeButton, wxGBPosition(2, 0));
+	movementGridSizer->Add(xNegativeMediumButton, wxGBPosition(2, 1));
+	movementGridSizer->Add(leftMovementButton, wxGBPosition(2, 2));
+	movementGridSizer->Add(homeMovementButton, wxGBPosition(2, 3), wxGBSpan(1, 2), wxEXPAND);
+	movementGridSizer->Add(rightMovementButton, wxGBPosition(2, 5));
+	movementGridSizer->Add(xPositiveSmallButton, wxGBPosition(2, 6));
+	movementGridSizer->Add(xPositiveMediumButton, wxGBPosition(2, 7));
+	movementGridSizer->Add(xPositiveLargeButton, wxGBPosition(2, 8));
+	movementGridSizer->Add(forwardMovementButton, wxGBPosition(3, 2));
+	movementGridSizer->Add(yNegativeSmallButton, wxGBPosition(4, 1));
+	movementGridSizer->Add(yNegativeMediumButton, wxGBPosition(4, 2));
+	movementGridSizer->Add(yNegativeLargeButton, wxGBPosition(4, 3));
+	movementGridSizer->Add(upMovementButton, wxGBPosition(0, 10));
+	movementGridSizer->Add(zLargeButton, wxGBPosition(1, 10));
+	movementGridSizer->Add(zMediumButton, wxGBPosition(2, 10));
+	movementGridSizer->Add(zSmallButton, wxGBPosition(3, 10));
+	movementGridSizer->Add(zNegativeSmallButton, wxGBPosition(5, 10));
+	movementGridSizer->Add(zNegativeMediumButton, wxGBPosition(6, 10));
+	movementGridSizer->Add(zNegativeLargeButton, wxGBPosition(7, 10));
+	movementGridSizer->Add(downMovementButton, wxGBPosition(8, 10));
+	movementGridSizer->AddGrowableCol(4);
+	movementGridSizer->AddGrowableRow(2);
+
 	wxBoxSizer *movementSectionSizer = new wxBoxSizer(wxVERTICAL);
 	movementSectionSizer->Add(movementGridSizer, 0, wxALIGN_CENTER_HORIZONTAL | wxBOTTOM, 8);
-	movementSectionSizer->Add(distanceMovementText, 0, wxEXPAND | wxBOTTOM, 4);
-	movementSectionSizer->Add(distanceMovementSlider, 0, wxEXPAND | wxBOTTOM, 8);
-	movementSectionSizer->Add(feedRateMovementText, 0, wxEXPAND | wxBOTTOM, 4);
-	movementSectionSizer->Add(feedRateMovementSlider, 0, wxEXPAND);
+	movementSectionSizer->Add(movementFeedRateText, 0, wxALIGN_CENTER_HORIZONTAL);
 	ui.movementSizer->Add(movementSectionSizer, 1, wxEXPAND | wxALL, 8);
 
 	wxArrayString printerSettings;
@@ -207,8 +254,8 @@ void ControlTabController::enableMovementControls(bool enable) {
 	upMovementButton->Enable(enable);
 	downMovementButton->Enable(enable);
 	homeMovementButton->Enable(enable);
-	distanceMovementSlider->Enable(enable);
-	feedRateMovementSlider->Enable(enable);
+	for(wxButton *button : movementStepButtons)
+		button->Enable(enable);
 }
 
 void ControlTabController::enableSettingsControls(bool enable) {
@@ -232,16 +279,6 @@ void ControlTabController::enableCalibrationControls(bool enable) {
 	calibrateBedOrientationButton->Enable(enable);
 	saveCurrentPositionAsHomeButton->Enable(enable);
 	saveZAsZeroButton->Enable(enable);
-}
-
-void ControlTabController::updateDistanceMovementText() {
-	stringstream stream;
-	stream << fixed << setprecision(3) << static_cast<double>(distanceMovementSlider->GetValue()) / 1000;
-	distanceMovementText->SetLabel("Distance: " + stream.str() + "mm");
-}
-
-void ControlTabController::updateFeedRateMovementText() {
-	feedRateMovementText->SetLabel("Feed rate: " + to_string(feedRateMovementSlider->GetValue()) + "mm/min");
 }
 
 void ControlTabController::setPrinterSettingValue() {
