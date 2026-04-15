@@ -2,6 +2,7 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <iostream>
 #include <wx/mstream.h>
 #include "gui.h"
 #ifdef WINDOWS
@@ -38,7 +39,6 @@ wxBitmap loadImage(const unsigned char *data, unsigned long long size, int width
 MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, long style) :
 	wxFrame(nullptr, wxID_ANY, title, pos, size, style)
 {
-
 	// Set printer's log function
 	printer.setLogFunction([=](const string &message) -> void {
 	
@@ -75,64 +75,18 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	// Close event
 	Bind(wxEVT_CLOSE_WINDOW, &MyFrame::close, this);
 	
-	// Show event
-	Bind(wxEVT_SHOW, &MyFrame::show, this);
+	ui = buildMainLayout(this);
 
-	// Create panel
-	wxPanel *panel = new wxPanel(this, wxID_ANY);
-	
-	// Create connection box
-	new wxStaticBox(panel, wxID_ANY, "Connection", wxPoint(5, 0), wxSize(
-	#ifdef WINDOWS
-		542, 90
-	#endif
-	#ifdef MACOS
-		549, 82
-	#endif
-	#ifdef LINUX
-		549, 97
-	#endif
-	));
-	
-	// Create serial port text
-	new wxStaticText(panel, wxID_ANY, "Serial Port", wxPoint(
-	#ifdef WINDOWS
-		15, 24
-	#endif
-	#ifdef MACOS
-		15, 23
-	#endif
-	#ifdef LINUX
-		15, 28
-	#endif
-	));
-	
-	// Create serial port choice
-	serialPortChoice = new wxChoice(panel, wxID_ANY, wxPoint(
-	#ifdef WINDOWS
-		82, 20
-	#endif
-	#ifdef MACOS
-		87, 20
-	#endif
-	#ifdef LINUX
-		92, 20
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		324, -1
-	#endif
-	#ifdef MACOS
-		324, -1
-	#endif
-	#ifdef LINUX
-		328, -1
-	#endif
-	), getAvailableSerialPorts());
+	// Build connection section
+	wxBoxSizer *connectionRowSizer = new wxBoxSizer(wxHORIZONTAL);
+	connectionRowSizer->Add(new wxStaticText(ui.connectionSection, wxID_ANY, "Serial Port"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+
+	serialPortChoice = new wxChoice(ui.connectionSection, wxID_ANY, wxDefaultPosition, wxDefaultSize, getAvailableSerialPorts());
 	serialPortChoice->SetSelection(serialPortChoice->FindString("Auto"));
-	
-	// Create refresh serial ports button
-	refreshSerialPortsButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
+	serialPortChoice->SetMinSize(wxSize(300, -1));
+	connectionRowSizer->Add(serialPortChoice, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+
+	refreshSerialPortsButton = new wxBitmapButton(ui.connectionSection, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
 	#ifdef WINDOWS
 		-1, -1, 0, 0
 	#endif
@@ -142,67 +96,21 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#ifdef LINUX
 		-1, -1, 0, 0
 	#endif
-	), wxPoint(
-	#ifdef WINDOWS
-		416, 19
-	#endif
-	#ifdef MACOS
-		416, 15
-	#endif
-	#ifdef LINUX
-		425, 22
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
 	));
 	refreshSerialPortsButton->Bind(wxEVT_BUTTON, &MyFrame::refreshSerialPorts, this);
-	
-	// Create connection button
-	connectionButton = new wxButton(panel, wxID_ANY, "Connect", wxPoint(
-	#ifdef WINDOWS
-		450, 18
-	#endif
-	#ifdef MACOS
-		451, 18
-	#endif
-	#ifdef LINUX
-		460, 22
-	#endif
-	));
+	connectionRowSizer->Add(refreshSerialPortsButton, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+
+	connectionButton = new wxButton(ui.connectionSection, wxID_ANY, "Connect");
 	connectionButton->Bind(wxEVT_BUTTON, &MyFrame::changePrinterConnection, this);
-	
-	// Create status text
-	new wxStaticText(panel, wxID_ANY, "Status:", wxPoint(
-	#ifdef WINDOWS
-		15, 59
-	#endif
-	#ifdef MACOS
-		15, 54
-	#endif
-	#ifdef LINUX
-		15, 64
-	#endif
-	));
-	statusText = new wxStaticText(panel, wxID_ANY, "Not connected", wxPoint(
-	#ifdef WINDOWS
-		53, 59
-	#endif
-	#ifdef MACOS
-		62, 54
-	#endif
-	#ifdef LINUX
-		65, 64
-	#endif
-	), wxSize(300, -1));
+	connectionRowSizer->Add(connectionButton, 0, wxALIGN_CENTER_VERTICAL);
+
+	ui.connectionContentSizer->Add(connectionRowSizer, 0, wxEXPAND);
+
+	ui.statusRowSizer->Add(new wxStaticText(ui.statusRow, wxID_ANY, "Status:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+	statusText = new wxStaticText(ui.statusRow, wxID_ANY, "Not connected");
 	statusText->SetForegroundColour(wxColour(255, 0, 0));
+	ui.statusRowSizer->Add(statusText, 1, wxALIGN_CENTER_VERTICAL);
+	ui.connectionContentSizer->Add(ui.statusRow, 0, wxEXPAND | wxTOP, 8);
 	
 	// Create log timer
 	wxTimer *logTimer = new wxTimer(this, wxID_ANY);
@@ -218,148 +126,47 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#ifndef MACOS
 	
 		// Create install drivers button
-		installDriversButton = new wxButton(panel, wxID_ANY, "Install drivers", wxPoint(
-		#ifdef WINDOWS
-			448, 54
-		#endif
-		#ifdef LINUX
-			440, 58
-		#endif
-		));
+		installDriversButton = new wxButton(ui.firmwareSection, wxID_ANY, "Install drivers");
 		installDriversButton->Bind(wxEVT_BUTTON, &MyFrame::installDrivers, this);
 	#endif
-	
-	// Create firmware box
-	new wxStaticBox(panel, wxID_ANY, "Firmware", wxPoint(
-	#ifdef WINDOWS
-		5, 91
-	#endif
-	#ifdef MACOS
-		5, 83
-	#endif
-	#ifdef LINUX
-		5, 98
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		542, 94
-	#endif
-	#ifdef MACOS
-		549, 95
-	#endif
-	#ifdef LINUX
-		549, 96
-	#endif
-	));
-	
-	// Create install iMe firmware button
+
+	// Create firmware section
 	string iMeVersion = static_cast<string>(TOSTRING(IME_ROM_VERSION_STRING)).substr(2);
 	for(uint8_t i = 0; i < 3; i++)
 		iMeVersion.insert(i * 2 + 2 + i, ".");
-	installImeFirmwareButton = new wxButton(panel, wxID_ANY, "Install iMe V" + iMeVersion, wxPoint(
-	#ifdef WINDOWS
-		14, 111
-	#endif
-	#ifdef MACOS
-		11, 103
-	#endif
-	#ifdef LINUX
-		14, 118
-	#endif
-	));
+	installImeFirmwareButton = new wxButton(ui.firmwareSection, wxID_ANY, "Install iMe V" + iMeVersion);
 	installImeFirmwareButton->Enable(false);
 	installImeFirmwareButton->Bind(wxEVT_BUTTON, &MyFrame::installImeFirmware, this);
 	
-	// Create install M3D firmware button
-	installM3dFirmwareButton = new wxButton(panel, wxID_ANY, "Install M3D V" TOSTRING(M3D_ROM_VERSION_STRING), wxPoint(
-	#ifdef WINDOWS
-		14, 147
-	#endif
-	#ifdef MACOS
-		11, 139
-	#endif
-	#ifdef LINUX
-		14, 154
-	#endif
-	));
+	installM3dFirmwareButton = new wxButton(ui.firmwareSection, wxID_ANY, "Install M3D V" TOSTRING(M3D_ROM_VERSION_STRING));
 	installM3dFirmwareButton->Enable(false);
 	installM3dFirmwareButton->Bind(wxEVT_BUTTON, &MyFrame::installM3dFirmware, this);
 	
-	// Create install firmware with file button
-	installFirmwareFromFileButton = new wxButton(panel, wxID_ANY, "Install firmware from file", wxPoint(
-	#ifdef WINDOWS
-		388, 111
-	#endif
-	#ifdef MACOS
-		363, 103
-	#endif
-	#ifdef LINUX
-		365, 118
-	#endif
-	));
+	installFirmwareFromFileButton = new wxButton(ui.firmwareSection, wxID_ANY, "Install firmware from file");
 	installFirmwareFromFileButton->Enable(false);
 	installFirmwareFromFileButton->Bind(wxEVT_BUTTON, &MyFrame::installFirmwareFromFile, this);
 	
-	// Create switch to mode button
-	switchToModeButton = new wxButton(panel, wxID_ANY, "Switch to bootloader mode", wxPoint(
-	#ifdef WINDOWS
-		373, 147
-	#endif
-	#ifdef MACOS
-		349, 139
-	#endif
-	#ifdef LINUX
-		347, 154
-	#endif
-	));
+	switchToModeButton = new wxButton(ui.firmwareSection, wxID_ANY, "Switch to bootloader mode");
 	switchToModeButton->Enable(false);
 	switchToModeButton->Bind(wxEVT_BUTTON, &MyFrame::switchToMode, this);
-	
-	// Create console box
-	new wxStaticBox(panel, wxID_ANY, "Console", wxPoint(
-	#ifdef WINDOWS
-		5, 186
+
+	wxBoxSizer *firmwareRowsSizer = new wxBoxSizer(wxVERTICAL);
+	wxBoxSizer *firmwareRow1Sizer = new wxBoxSizer(wxHORIZONTAL);
+	firmwareRow1Sizer->Add(installImeFirmwareButton, 1, wxEXPAND | wxRIGHT, 8);
+	firmwareRow1Sizer->Add(installM3dFirmwareButton, 1, wxEXPAND);
+	wxBoxSizer *firmwareRow2Sizer = new wxBoxSizer(wxHORIZONTAL);
+	firmwareRow2Sizer->Add(installFirmwareFromFileButton, 1, wxEXPAND | wxRIGHT, 8);
+	firmwareRow2Sizer->Add(switchToModeButton, 1, wxEXPAND);
+	firmwareRowsSizer->Add(firmwareRow1Sizer, 0, wxEXPAND | wxBOTTOM, 8);
+	firmwareRowsSizer->Add(firmwareRow2Sizer, 0, wxEXPAND);
+	#ifndef MACOS
+		firmwareRowsSizer->Add(installDriversButton, 0, wxTOP | wxEXPAND, 8);
 	#endif
-	#ifdef MACOS
-		5, 179
-	#endif
-	#ifdef LINUX
-		5, 195
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		542, 247
-	#endif
-	#ifdef MACOS
-		549, 267
-	#endif
-	#ifdef LINUX
-		549, 269
-	#endif
-	));
-	
-	// Create console output
-	consoleOutput = new wxTextCtrl(panel, wxID_ANY, wxEmptyString, wxPoint(
-	#ifdef WINDOWS
-		15, 206
-	#endif
-	#ifdef MACOS
-		19, 204
-	#endif
-	#ifdef LINUX
-		15, 215
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		522, 182
-	#endif
-	#ifdef MACOS
-		524, 198
-	#endif
-	#ifdef LINUX
-		529, 200
-	#endif
-	), wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH);
+	ui.firmwareSizer->Add(firmwareRowsSizer, 1, wxEXPAND | wxALL, 8);
+
+	// Create console section
+	consoleOutput = new wxTextCtrl(ui.consoleSection, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE | wxTE_READONLY | wxTE_RICH);
+	consoleOutput->SetMinSize(wxSize(520, 220));
 	consoleOutput->SetFont(wxFont(
 	#ifdef WINDOWS
 		8
@@ -372,81 +179,24 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#endif
 	, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL));
 	
-	// Create command input
-	commandInput = new wxTextCtrl(panel, wxID_ANY, wxEmptyString, wxPoint(
-	#ifdef WINDOWS
-		15, 398
-	#endif
-	#ifdef MACOS
-		17, 410
-	#endif
-	#ifdef LINUX
-		14, 425
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		426, -1
-	#endif
-	#ifdef MACOS
-		432, -1
-	#endif
-	#ifdef LINUX
-		441, -1
-	#endif
-	), wxTE_PROCESS_ENTER);
+	commandInput = new wxTextCtrl(ui.consoleSection, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
 	commandInput->SetHint("Command");
 	commandInput->Bind(wxEVT_TEXT_ENTER, &MyFrame::sendCommandManually, this);
 	
-	// Create send command button
-	sendCommandButton = new wxButton(panel, wxID_ANY, "Send", wxPoint(
-	#ifdef WINDOWS
-		450, 396
-	#endif
-	#ifdef MACOS
-		451, 407
-	#endif
-	#ifdef LINUX
-		460, 425
-	#endif
-	));
+	sendCommandButton = new wxButton(ui.consoleSection, wxID_ANY, "Send");
 	sendCommandButton->Enable(false);
 	sendCommandButton->Bind(wxEVT_BUTTON, &MyFrame::sendCommandManually, this);
-	
-	// Create movement box
-	new wxStaticBox(panel, wxID_ANY, "Movement", wxPoint(564, 0), wxSize(
-	#ifdef WINDOWS
-		201, 249
-	#endif
-	#ifdef MACOS
-		201, 249
-	#endif
-	#ifdef LINUX
-		201, 249
-	#endif
-	));
-	
-	// Create backward movement button
-	backwardMovementButton = new wxButton(panel, wxID_ANY, "↑", wxPoint(
-	#ifdef WINDOWS
-		615, 19
-	#endif
-	#ifdef MACOS
-		615, 15
-	#endif
-	#ifdef LINUX
-		624, 22
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
-	));
+
+	wxBoxSizer *consoleSectionSizer = new wxBoxSizer(wxVERTICAL);
+	consoleSectionSizer->Add(consoleOutput, 1, wxEXPAND | wxBOTTOM, 8);
+	wxBoxSizer *consoleCommandSizer = new wxBoxSizer(wxHORIZONTAL);
+	consoleCommandSizer->Add(commandInput, 1, wxEXPAND | wxRIGHT, 8);
+	consoleCommandSizer->Add(sendCommandButton, 0, wxEXPAND);
+	consoleSectionSizer->Add(consoleCommandSizer, 0, wxEXPAND);
+	ui.consoleSizer->Add(consoleSectionSizer, 1, wxEXPAND | wxALL, 8);
+
+	// Create movement section
+	backwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↑");
 	backwardMovementButton->Enable(false);
 	backwardMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -455,28 +205,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G0 Y" + to_string(static_cast<double>(distanceMovementSlider->GetValue()) / 1000) + " F" + to_string(printer.convertFeedRate(feedRateMovementSlider->GetValue())));
 	});
 	
-	// Create left movement button
-	leftMovementButton = new wxButton(panel, wxID_ANY, "←", wxPoint(
-	#ifdef WINDOWS
-		565, 67
-	#endif
-	#ifdef MACOS
-		565, 63
-	#endif
-	#ifdef LINUX
-		574, 70
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
-	));
+	leftMovementButton = new wxButton(ui.movementSection, wxID_ANY, "←");
 	leftMovementButton->Enable(false);
 	leftMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -485,20 +214,8 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G0 X-" + to_string(static_cast<double>(distanceMovementSlider->GetValue()) / 1000) + " F" + to_string(printer.convertFeedRate(feedRateMovementSlider->GetValue())));
 	});
 	
-	// Create home movement button
-	homeMovementButton = new wxButton(panel, wxID_ANY, "Home", wxPoint(
-	#ifdef WINDOWS
-		615, 67
-	#endif
-	#ifdef MACOS
-		615, 63
-	#endif
-	#ifdef LINUX
-		624, 70
-	#endif
-	), wxSize(
-		45, -1
-	));
+	homeMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Home");
+	homeMovementButton->SetMinSize(wxSize(60, -1));
 	homeMovementButton->Enable(false);
 	homeMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -506,28 +223,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G28");
 	});
 	
-	// Create right movement button
-	rightMovementButton = new wxButton(panel, wxID_ANY, "→", wxPoint(
-	#ifdef WINDOWS
-		665, 67
-	#endif
-	#ifdef MACOS
-		665, 63
-	#endif
-	#ifdef LINUX
-		674, 70
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
-	));
+	rightMovementButton = new wxButton(ui.movementSection, wxID_ANY, "→");
 	rightMovementButton->Enable(false);
 	rightMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -536,28 +232,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G0 X" + to_string(static_cast<double>(distanceMovementSlider->GetValue()) / 1000) + " F" + to_string(printer.convertFeedRate(feedRateMovementSlider->GetValue())));
 	});
 	
-	// Create forward movement button
-	forwardMovementButton = new wxButton(panel, wxID_ANY, "↓", wxPoint(
-	#ifdef WINDOWS
-		615, 115
-	#endif
-	#ifdef MACOS
-		615, 111
-	#endif
-	#ifdef LINUX
-		624, 118
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
-	));
+	forwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↓");
 	forwardMovementButton->Enable(false);
 	forwardMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -566,28 +241,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G0 Y-" + to_string(static_cast<double>(distanceMovementSlider->GetValue()) / 1000) + " F" + to_string(printer.convertFeedRate(feedRateMovementSlider->GetValue())));
 	});
 	
-	// Create up movement button
-	upMovementButton = new wxButton(panel, wxID_ANY, "Z+", wxPoint(
-	#ifdef WINDOWS
-		695, 43
-	#endif
-	#ifdef MACOS
-		715, 39
-	#endif
-	#ifdef LINUX
-		724, 46
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
-	));
+	upMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Z+");
 	upMovementButton->Enable(false);
 	upMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -596,28 +250,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G0 Z" + to_string(static_cast<double>(distanceMovementSlider->GetValue()) / 1000) + " F" + to_string(printer.convertFeedRate(feedRateMovementSlider->GetValue())));
 	});
 	
-	// Create down movement button
-	downMovementButton = new wxButton(panel, wxID_ANY, "Z-", wxPoint(
-	#ifdef WINDOWS
-		695, 89
-	#endif
-	#ifdef MACOS
-		715, 87
-	#endif
-	#ifdef LINUX
-		724, 94
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
-	));
+	downMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Z-");
 	downMovementButton->Enable(false);
 	downMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -626,51 +259,11 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G0 Z-" + to_string(static_cast<double>(distanceMovementSlider->GetValue()) / 1000) + " F" + to_string(printer.convertFeedRate(feedRateMovementSlider->GetValue())));
 	});
 	
-	// Create distance movement text
-	distanceMovementText = new wxStaticText(panel, wxID_ANY, "", wxPoint(
-	#ifdef WINDOWS
-		575, 157
-	#endif
-	#ifdef MACOS
-		575, 157
-	#endif
-	#ifdef LINUX
-		575, 157
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		179, -1
-	#endif
-	#ifdef MACOS
-		179, -1
-	#endif
-	#ifdef LINUX
-		179, -1
-	#endif
-	), wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-	
-	// Create distance movement slider
-	distanceMovementSlider = new wxSlider(panel, wxID_ANY, 10 * 1000, 0.001 * 1000, 100 * 1000, wxPoint(
-	#ifdef WINDOWS
-		575, 178
-	#endif
-	#ifdef MACOS
-		575, 178
-	#endif
-	#ifdef LINUX
-		575, 178
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		179, -1
-	#endif
-	#ifdef MACOS
-		179, -1
-	#endif
-	#ifdef LINUX
-		179, -1
-	#endif
-	));
+	distanceMovementText = new wxStaticText(ui.movementSection, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
+	distanceMovementText->SetMinSize(wxSize(180, -1));
+
+	distanceMovementSlider = new wxSlider(ui.movementSection, wxID_ANY, 10 * 1000, 0.001 * 1000, 100 * 1000);
+	distanceMovementSlider->SetMinSize(wxSize(180, -1));
 	distanceMovementSlider->Enable(false);
 	distanceMovementSlider->Bind(wxEVT_COMMAND_SLIDER_UPDATED, [=](wxCommandEvent& event) {
 	
@@ -679,51 +272,11 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	updateDistanceMovementText();
 	
-	// Create feed rate movement text
-	feedRateMovementText = new wxStaticText(panel, wxID_ANY, "", wxPoint(
-	#ifdef WINDOWS
-		575, 205
-	#endif
-	#ifdef MACOS
-		575, 205
-	#endif
-	#ifdef LINUX
-		575, 205
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		179, -1
-	#endif
-	#ifdef MACOS
-		179, -1
-	#endif
-	#ifdef LINUX
-		179, -1
-	#endif
-	), wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
-	
-	// Create feed rate movement slider
-	feedRateMovementSlider = new wxSlider(panel, wxID_ANY, DEFAULT_X_SPEED, 1, 4800, wxPoint(
-	#ifdef WINDOWS
-		575, 226
-	#endif
-	#ifdef MACOS
-		575, 226
-	#endif
-	#ifdef LINUX
-		575, 226
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		179, -1
-	#endif
-	#ifdef MACOS
-		179, -1
-	#endif
-	#ifdef LINUX
-		179, -1
-	#endif
-	));
+	feedRateMovementText = new wxStaticText(ui.movementSection, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL | wxST_NO_AUTORESIZE);
+	feedRateMovementText->SetMinSize(wxSize(180, -1));
+
+	feedRateMovementSlider = new wxSlider(ui.movementSection, wxID_ANY, DEFAULT_X_SPEED, 1, 4800);
+	feedRateMovementSlider->SetMinSize(wxSize(180, -1));
 	feedRateMovementSlider->Enable(false);
 	feedRateMovementSlider->Bind(wxEVT_COMMAND_SLIDER_UPDATED, [=](wxCommandEvent& event) {
 	
@@ -731,61 +284,36 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		updateFeedRateMovementText();
 	});
 	updateFeedRateMovementText();
-	
-	// Create settings box
-	new wxStaticBox(panel, wxID_ANY, "Settings", wxPoint(775, 0), wxSize(
-	#ifdef WINDOWS
-		338, 99
-	#endif
-	#ifdef MACOS
-		338, 99
-	#endif
-	#ifdef LINUX
-		338, 99
-	#endif
-	));
+
+	wxGridBagSizer *movementGridSizer = new wxGridBagSizer(8, 8);
+	movementGridSizer->Add(backwardMovementButton, wxGBPosition(0, 1));
+	movementGridSizer->Add(leftMovementButton, wxGBPosition(1, 0));
+	movementGridSizer->Add(homeMovementButton, wxGBPosition(1, 1));
+	movementGridSizer->Add(rightMovementButton, wxGBPosition(1, 2));
+	movementGridSizer->Add(forwardMovementButton, wxGBPosition(2, 1));
+	movementGridSizer->Add(upMovementButton, wxGBPosition(0, 3));
+	movementGridSizer->Add(downMovementButton, wxGBPosition(1, 3));
+	movementGridSizer->AddGrowableCol(0);
+	movementGridSizer->AddGrowableCol(1);
+	movementGridSizer->AddGrowableCol(2);
+	movementGridSizer->AddGrowableCol(3);
+	wxBoxSizer *movementSectionSizer = new wxBoxSizer(wxVERTICAL);
+	movementSectionSizer->Add(movementGridSizer, 0, wxALIGN_CENTER_HORIZONTAL | wxBOTTOM, 8);
+	movementSectionSizer->Add(distanceMovementText, 0, wxEXPAND | wxBOTTOM, 4);
+	movementSectionSizer->Add(distanceMovementSlider, 0, wxEXPAND | wxBOTTOM, 8);
+	movementSectionSizer->Add(feedRateMovementText, 0, wxEXPAND | wxBOTTOM, 4);
+	movementSectionSizer->Add(feedRateMovementSlider, 0, wxEXPAND);
+	ui.movementSizer->Add(movementSectionSizer, 1, wxEXPAND | wxALL, 8);
+
+	// Create settings section
 	
 	// Create printer settings
 	wxArrayString printerSettings;
 	vector<string> temp = printer.getEepromSettingsNames();
 	for(uint8_t i = 0; i < temp.size(); i++)
 		printerSettings.Add(temp[i]);
-	
-	// Create printer setting text
-	new wxStaticText(panel, wxID_ANY, "Printer Setting", wxPoint(
-	#ifdef WINDOWS
-		785, 24
-	#endif
-	#ifdef MACOS
-		785, 23
-	#endif
-	#ifdef LINUX
-		785, 28
-	#endif
-	));
-	
-	// Create printer setting choice
-	printerSettingChoice = new wxChoice(panel, wxID_ANY, wxPoint(
-	#ifdef WINDOWS
-		889, 20
-	#endif
-	#ifdef MACOS
-		889, 20
-	#endif
-	#ifdef LINUX
-		889, 20
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		215, -1
-	#endif
-	#ifdef MACOS
-		215, -1
-	#endif
-	#ifdef LINUX
-		215, -1
-	#endif
-	), printerSettings);
+
+	printerSettingChoice = new wxChoice(ui.settingsSection, wxID_ANY, wxDefaultPosition, wxDefaultSize, printerSettings);
 	printerSettingChoice->SetSelection(printerSettingChoice->FindString(printerSettings[0]));
 	printerSettingChoice->Enable(false);
 	printerSettingChoice->Bind(wxEVT_CHOICE, [=](wxCommandEvent& event) {
@@ -793,82 +321,26 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		// Set printer settings value
 		setPrinterSettingValue();
 	});
-	
-	// Create printer setting input
-	printerSettingInput = new wxTextCtrl(panel, wxID_ANY, wxEmptyString, wxPoint(
-	#ifdef WINDOWS
-		785, 60
-	#endif
-	#ifdef MACOS
-		785, 60
-	#endif
-	#ifdef LINUX
-		785, 60
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		229, -1
-	#endif
-	#ifdef MACOS
-		229, -1
-	#endif
-	#ifdef LINUX
-		229, -1
-	#endif
-	), wxTE_PROCESS_ENTER);
+
+	printerSettingInput = new wxTextCtrl(ui.settingsSection, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER);
 	printerSettingInput->SetHint("Value");
 	printerSettingInput->Bind(wxEVT_TEXT_ENTER, &MyFrame::savePrinterSetting, this);
 	
-	// Create save printer setting button
-	savePrinterSettingButton = new wxButton(panel, wxID_ANY, "Save", wxPoint(
-	#ifdef WINDOWS
-		1019, 60
-	#endif
-	#ifdef MACOS
-		1019, 60
-	#endif
-	#ifdef LINUX
-		1019, 60
-	#endif
-	));
+	savePrinterSettingButton = new wxButton(ui.settingsSection, wxID_ANY, "Save");
 	savePrinterSettingButton->Enable(false);
 	savePrinterSettingButton->Bind(wxEVT_BUTTON, &MyFrame::savePrinterSetting, this);
-	
-	// Create calibration box
-	new wxStaticBox(panel, wxID_ANY, "Miscellaneous", wxPoint(564, 250), wxSize(
-	#ifdef WINDOWS
-		105, 168
-	#endif
-	#ifdef MACOS
-		105, 168
-	#endif
-	#ifdef LINUX
-		105, 168
-	#endif
-	));
-	
-	// Create motors on button
-	motorsOnButton = new wxButton(panel, wxID_ANY, "Motors on", wxPoint(
-	#ifdef WINDOWS
-		574, 270
-	#endif
-	#ifdef MACOS
-		574, 270
-	#endif
-	#ifdef LINUX
-		574, 270
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		85, -1
-	#endif
-	#ifdef MACOS
-		85, -1
-	#endif
-	#ifdef LINUX
-		85, -1
-	#endif
-	));
+
+	wxBoxSizer *settingsSectionSizer = new wxBoxSizer(wxVERTICAL);
+	settingsSectionSizer->Add(new wxStaticText(ui.settingsSection, wxID_ANY, "Printer Setting"), 0, wxBOTTOM, 4);
+	settingsSectionSizer->Add(printerSettingChoice, 0, wxEXPAND | wxBOTTOM, 8);
+	wxBoxSizer *settingsInputSizer = new wxBoxSizer(wxHORIZONTAL);
+	settingsInputSizer->Add(printerSettingInput, 1, wxEXPAND | wxRIGHT, 8);
+	settingsInputSizer->Add(savePrinterSettingButton, 0, wxEXPAND);
+	settingsSectionSizer->Add(settingsInputSizer, 0, wxEXPAND);
+	ui.settingsSizer->Add(settingsSectionSizer, 1, wxEXPAND | wxALL, 8);
+
+	// Create miscellaneous section
+	motorsOnButton = new wxButton(ui.miscellaneousSection, wxID_ANY, "Motors on");
 	motorsOnButton->Enable(false);
 	motorsOnButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -876,28 +348,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("M17");
 	});
 	
-	// Create motors off button
-	motorsOffButton = new wxButton(panel, wxID_ANY, "Motors off", wxPoint(
-	#ifdef WINDOWS
-		574, 306
-	#endif
-	#ifdef MACOS
-		574, 306
-	#endif
-	#ifdef LINUX
-		574, 306
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		85, -1
-	#endif
-	#ifdef MACOS
-		85, -1
-	#endif
-	#ifdef LINUX
-		85, -1
-	#endif
-	));
+	motorsOffButton = new wxButton(ui.miscellaneousSection, wxID_ANY, "Motors off");
 	motorsOffButton->Enable(false);
 	motorsOffButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -905,28 +356,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("M18");
 	});
 	
-	// Create fan on button
-	fanOnButton = new wxButton(panel, wxID_ANY, "Fan on", wxPoint(
-	#ifdef WINDOWS
-		574, 342
-	#endif
-	#ifdef MACOS
-		574, 342
-	#endif
-	#ifdef LINUX
-		574, 342
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		85, -1
-	#endif
-	#ifdef MACOS
-		85, -1
-	#endif
-	#ifdef LINUX
-		85, -1
-	#endif
-	));
+	fanOnButton = new wxButton(ui.miscellaneousSection, wxID_ANY, "Fan on");
 	fanOnButton->Enable(false);
 	fanOnButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -934,70 +364,23 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("M106 S255");
 	});
 	
-	// Create fan off button
-	fanOffButton = new wxButton(panel, wxID_ANY, "Fan off", wxPoint(
-	#ifdef WINDOWS
-		574, 378
-	#endif
-	#ifdef MACOS
-		574, 378
-	#endif
-	#ifdef LINUX
-		574, 378
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		85, -1
-	#endif
-	#ifdef MACOS
-		85, -1
-	#endif
-	#ifdef LINUX
-		85, -1
-	#endif
-	));
+	fanOffButton = new wxButton(ui.miscellaneousSection, wxID_ANY, "Fan off");
 	fanOffButton->Enable(false);
 	fanOffButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
 		// Send commands
 		sendCommand("M107");
 	});
-	
-	// Create calibration box
-	new wxStaticBox(panel, wxID_ANY, "Calibration", wxPoint(679, 250), wxSize(
-	#ifdef WINDOWS
-		205, 131
-	#endif
-	#ifdef MACOS
-		205, 131
-	#endif
-	#ifdef LINUX
-		205, 131
-	#endif
-	));
-	
-	// Create calibrate bed position button
-	calibrateBedPositionButton = new wxButton(panel, wxID_ANY, "Calibrate bed position", wxPoint(
-	#ifdef WINDOWS
-		689, 270
-	#endif
-	#ifdef MACOS
-		689, 270
-	#endif
-	#ifdef LINUX
-		689, 270
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		185, -1
-	#endif
-	#ifdef MACOS
-		185, -1
-	#endif
-	#ifdef LINUX
-		185, -1
-	#endif
-	));
+
+	wxBoxSizer *miscellaneousSectionSizer = new wxBoxSizer(wxVERTICAL);
+	miscellaneousSectionSizer->Add(motorsOnButton, 0, wxEXPAND | wxBOTTOM, 8);
+	miscellaneousSectionSizer->Add(motorsOffButton, 0, wxEXPAND | wxBOTTOM, 8);
+	miscellaneousSectionSizer->Add(fanOnButton, 0, wxEXPAND | wxBOTTOM, 8);
+	miscellaneousSectionSizer->Add(fanOffButton, 0, wxEXPAND);
+	ui.miscellaneousSizer->Add(miscellaneousSectionSizer, 1, wxEXPAND | wxALL, 8);
+
+	// Create calibration section
+	calibrateBedPositionButton = new wxButton(ui.calibrationSection, wxID_ANY, "Calibrate bed position");
 	calibrateBedPositionButton->Enable(false);
 	calibrateBedPositionButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -1011,28 +394,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G30");
 	});
 	
-	// Create calibrate bed orientation button
-	calibrateBedOrientationButton = new wxButton(panel, wxID_ANY, "Calibrate bed orientation", wxPoint(
-	#ifdef WINDOWS
-		689, 306
-	#endif
-	#ifdef MACOS
-		689, 306
-	#endif
-	#ifdef LINUX
-		689, 306
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		185, -1
-	#endif
-	#ifdef MACOS
-		185, -1
-	#endif
-	#ifdef LINUX
-		185, -1
-	#endif
-	));
+	calibrateBedOrientationButton = new wxButton(ui.calibrationSection, wxID_ANY, "Calibrate bed orientation");
 	calibrateBedOrientationButton->Enable(false);
 	calibrateBedOrientationButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -1045,28 +407,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		sendCommand("G32");
 	});
 	
-	// Create save Z as zero button
-	saveZAsZeroButton = new wxButton(panel, wxID_ANY, "Save Z as 0", wxPoint(
-	#ifdef WINDOWS
-		689, 342
-	#endif
-	#ifdef MACOS
-		689, 342
-	#endif
-	#ifdef LINUX
-		689, 342
-	#endif
-	), wxSize(
-	#ifdef WINDOWS
-		185, -1
-	#endif
-	#ifdef MACOS
-		185, -1
-	#endif
-	#ifdef LINUX
-		185, -1
-	#endif
-	));
+	saveZAsZeroButton = new wxButton(ui.calibrationSection, wxID_ANY, "Save Z as 0");
 	saveZAsZeroButton->Enable(false);
 	saveZAsZeroButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
 	
@@ -1081,9 +422,15 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	
 		sendCommand("G33");
 	});
-	
+
+	wxBoxSizer *calibrationSectionSizer = new wxBoxSizer(wxVERTICAL);
+	calibrationSectionSizer->Add(calibrateBedPositionButton, 0, wxEXPAND | wxBOTTOM, 8);
+	calibrationSectionSizer->Add(calibrateBedOrientationButton, 0, wxEXPAND | wxBOTTOM, 8);
+	calibrationSectionSizer->Add(saveZAsZeroButton, 0, wxEXPAND);
+	ui.calibrationSizer->Add(calibrationSectionSizer, 1, wxEXPAND | wxALL, 8);
+
 	// Create version text
-	versionText = new wxStaticText(panel, wxID_ANY, "M33 Manager V" TOSTRING(VERSION), wxDefaultPosition, wxSize(
+	versionText = new wxStaticText(ui.footerSection, wxID_ANY, "M33 Manager V" TOSTRING(VERSION), wxDefaultPosition, wxSize(
 	#ifdef WINDOWS
 		-1, 15
 	#endif
@@ -1107,33 +454,21 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#endif
 	);
 	versionText->SetFont(font);
-	
-	// Align version text to the bottom right
-	wxBoxSizer *hbox1 = new wxBoxSizer(wxHORIZONTAL);
-	hbox1->Add(new wxPanel(panel, wxID_ANY));
-	wxBoxSizer *hbox2 = new wxBoxSizer(wxHORIZONTAL);
-	hbox2->Add(versionText);
-	wxBoxSizer *vbox = new wxBoxSizer(wxVERTICAL);
-	vbox->Add(hbox1, 1, wxEXPAND);
-	vbox->Add(hbox2, 0, wxALIGN_RIGHT | wxRIGHT | wxBOTTOM,
-	#ifdef WINDOWS
-		2
-	#endif
-	#ifdef MACOS
-		2
-	#endif
-	#ifdef LINUX
-		3
-	#endif
-	);
-	panel->SetSizer(vbox);
+	ui.footerSizer->AddStretchSpacer(1);
+	ui.footerSizer->Add(versionText, 0, wxALIGN_RIGHT);
+
+	setStatusRowVisible(false);
+	setConnectedUiVisible(false);
+	Layout();
 	
 	// Thread task events
 	Bind(wxEVT_THREAD_TASK_START, &MyFrame::threadTaskStart, this);
 	Bind(wxEVT_THREAD_TASK_COMPLETE, &MyFrame::threadTaskComplete, this);
 	
 	// Check if creating thread failed
-	if(CreateThread(wxTHREAD_JOINABLE) != wxTHREAD_NO_ERROR || GetThread()->Run() != wxTHREAD_NO_ERROR)
+	wxThreadError createThreadResult = CreateThread(wxTHREAD_JOINABLE);
+	wxThreadError runThreadResult = createThreadResult == wxTHREAD_NO_ERROR ? GetThread()->Run() : wxTHREAD_NO_RESOURCE;
+	if(createThreadResult != wxTHREAD_NO_ERROR || runThreadResult != wxTHREAD_NO_ERROR)
 	
 		// Close
 		Close();
@@ -1151,13 +486,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 }
 
 void MyFrame::show(wxShowEvent &event) {
-
-	// Set initial focus
-	#ifdef MACOS
-		commandInput->SetFocus();
-	#else
-		GetChildren().GetFirst()->GetData()->SetFocus();
-	#endif
+	event.Skip();
 }
 
 wxThread::ExitCode MyFrame::Entry() {
@@ -1251,7 +580,6 @@ void MyFrame::threadTaskComplete(wxThreadEvent& event) {
 }
 
 void MyFrame::close(wxCloseEvent& event) {
-
 	// Stop status timer
 	statusTimer->Stop();
 
@@ -1292,8 +620,10 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			enableConnectionControls(false);
 
 			// Set status text
+			setStatusRowVisible(true);
 			statusText->SetLabel("Connecting");
 			statusText->SetForegroundColour(wxColour(255, 180, 0));
+			refreshWindowLayout();
 			
 			// Clear allow enabling controls
 			allowEnablingControls = false;
@@ -1321,11 +651,16 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			// Check if connected to printer
 			if(printer.isConnected()) {
 
+				// Show connected-only content
+				setStatusRowVisible(true);
+				setConnectedUiVisible(true);
+
 				// Enable firmware controls
 				enableFirmwareControls(true);
 				
 				// Change connection button to disconnect	
 				connectionButton->SetLabel("Disconnect");
+				refreshWindowLayout();
 				
 				// Log printer mode
 				logToConsole(static_cast<string>("Printer is in ") + (printer.getOperatingMode() == BOOTLOADER ? "bootloader" : "firmware") + " mode");
@@ -1340,8 +675,13 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			// Otherwise
 			else {
 			
+				// Restore compact disconnected layout
+				setConnectedUiVisible(false);
+				setStatusRowVisible(false);
+
 				// Enable connection controls
 				enableConnectionControls(true);
+				refreshWindowLayout();
 				
 				// Start status timer
 				statusTimer->Start(100);
@@ -1375,6 +715,10 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 		// Append thread complete callback to queue
 		threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
 	
+			// Restore compact disconnected layout
+			setConnectedUiVisible(false);
+			setStatusRowVisible(false);
+
 			// Disable firmware controls
 			enableFirmwareControls(false);
 			
@@ -1395,6 +739,7 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 		
 			// Enable connection controls
 			enableConnectionControls(true);
+			refreshWindowLayout();
 		
 			// Start status timer
 			statusTimer->Start(100);
@@ -2160,6 +1505,10 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 			// Change connection button to disconnect
 			if(connectionButton->GetLabel() != "Disconnect")
 				connectionButton->SetLabel("Disconnect");
+
+			// Show connected layout and status row
+			setStatusRowVisible(true);
+			setConnectedUiVisible(true);
 		
 			// Disable connection controls
 			enableConnectionControls(false);
@@ -2176,6 +1525,10 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 	
 			// Check if printer was just disconnected
 			if(status == "Disconnected" && (statusText->GetLabel() != status || connectionButton->GetLabel() == "Disconnect")) {
+
+				// Restore compact disconnected layout
+				setConnectedUiVisible(false);
+				setStatusRowVisible(false);
 				
 				// Disable firmware controls
 				enableFirmwareControls(false);
@@ -2197,6 +1550,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 		
 				// Enable connection controls
 				enableConnectionControls(true);
+				refreshWindowLayout();
 			
 				// Log disconnection
 				logToConsole("Printer has been disconnected");
@@ -2306,6 +1660,28 @@ void MyFrame::updateFeedRateMovementText() {
 
 	// Set feed rate movement text to current feed rate
 	feedRateMovementText->SetLabel("Feed rate: " + to_string(feedRateMovementSlider->GetValue()) + "mm/min");
+}
+
+void MyFrame::setConnectedUiVisible(bool visible) {
+
+	// Show or hide all connected-only content
+	ui.connectedContent->Show(visible);
+}
+
+void MyFrame::setStatusRowVisible(bool visible) {
+
+	// Show or hide the status row in the connection section
+	ui.statusRow->Show(visible);
+}
+
+void MyFrame::refreshWindowLayout() {
+
+	// Recompute layout and resize the frame to the current content
+	SetMinSize(wxSize(-1, -1));
+	ui.rootPanel->Layout();
+	Layout();
+	GetSizer()->Fit(this);
+	SetMinSize(GetSize());
 }
 
 void MyFrame::enableConnectionControls(bool enable) {

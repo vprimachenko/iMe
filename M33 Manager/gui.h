@@ -9,8 +9,10 @@
 #include <queue>
 #include <wx/sysopt.h>
 #include <wx/glcanvas.h>
+#include <wx/gbsizer.h>
 #include "common.h"
 #include "printer.h"
+#include "ui_layout.h"
 
 using namespace std;
 
@@ -182,6 +184,9 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		void enableSettingsControls(bool enable);
 		void enableMiscellaneousControls(bool enable);
 		void enableCalibrationControls(bool enable);
+		void setConnectedUiVisible(bool visible);
+		void setStatusRowVisible(bool visible);
+		void refreshWindowLayout();
 		
 		/*
 		Name: Set printer setting value
@@ -213,6 +218,7 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 	
 	// Private
 	private:
+		UiLayout ui;
 		
 		// Controls
 		wxChoice *serialPortChoice;

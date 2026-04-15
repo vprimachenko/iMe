@@ -48,6 +48,12 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 #else
 	int main(int argc, char *argv[]) {
 #endif
+
+	// Initialize wxWidgets application state
+	#ifdef USE_GUI
+		if(!wxApp::OnInit())
+			return false;
+	#endif
 	
 	// Attach break handler
 	signal(SIGINT, breakHandler);
@@ -64,8 +70,13 @@ bool installFirmware(const string &firmwareLocation, const string &serialPort);
 
 		// Create and show window
 		MyFrame *frame = new MyFrame("M33 Manager", wxDefaultPosition, wxSize(1118, 482), wxDEFAULT_FRAME_STYLE & ~(wxRESIZE_BORDER | wxMAXIMIZE_BOX));
+		SetTopWindow(frame);
 		frame->Center();
 		frame->Show(true);
+		frame->CallAfter([frame]() {
+			frame->refreshWindowLayout();
+			frame->Raise();
+		});
 		
 		// Return true
 		return true;

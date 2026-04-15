@@ -46,7 +46,7 @@ ifeq ($(TARGET_PLATFORM), WINDOWS32)
 	EXTRA_FILES += "./working/resources.o"
 	WINDRES = "i686-w64-mingw32-windres"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp
+		SRCS += gui.cpp ui_layout.cpp
 		LIBS += -D USE_GUI `/usr/i686-w64-mingw32/bin/wx-config --cxxflags --libs --static`
 	endif
 	STRIP = "i686-w64-mingw32-strip"
@@ -63,7 +63,7 @@ ifeq ($(TARGET_PLATFORM), WINDOWS64)
 	EXTRA_FILES += "./working/resources.o"
 	WINDRES = "x86_64-w64-mingw32-windres"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp
+		SRCS += gui.cpp ui_layout.cpp
 		LIBS += -D USE_GUI `/usr/i686-w64-mingw32/bin/wx-config --cxxflags --libs --static`
 	endif
 	STRIP = "x86_64-w64-mingw32-strip"
@@ -78,7 +78,7 @@ ifeq ($(TARGET_PLATFORM), MACOS)
 	CFLAGS_GENERIC += -stdlib=libc++
 	ARCHIVE = "$(PROGRAM_NAME) macOS.dmg"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp
+		SRCS += gui.cpp ui_layout.cpp
 		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
 	endif
 	STRIP = "strip"
@@ -93,7 +93,7 @@ ifeq ($(TARGET_PLATFORM), LINUX32)
 	CFLAGS_GENERIC += -static-libgcc -static-libstdc++
 	ARCHIVE = "$(PROGRAM_NAME) Linux.zip"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp
+		SRCS += gui.cpp ui_layout.cpp
 		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
 	endif
 	STRIP = "strip"
@@ -108,7 +108,7 @@ ifeq ($(TARGET_PLATFORM), LINUX64)
 	CFLAGS_GENERIC += -static-libgcc -static-libstdc++
 	ARCHIVE = "$(PROGRAM_NAME) Linux.zip"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp
+		SRCS += gui.cpp ui_layout.cpp
 		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
 	endif
 	STRIP = "strip"
