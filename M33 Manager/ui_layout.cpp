@@ -52,9 +52,14 @@ UiLayout buildMainLayout(wxFrame *frame) {
 	layout.firmwareTabSizer = new wxBoxSizer(wxVERTICAL);
 	layout.firmwareTab->SetSizer(layout.firmwareTabSizer);
 
+	layout.printTab = new wxPanel(layout.connectedNotebook, wxID_ANY);
+	layout.printTabSizer = new wxBoxSizer(wxVERTICAL);
+	layout.printTab->SetSizer(layout.printTabSizer);
+
 	layout.connectedNotebook->AddPage(layout.mainTab, "Main");
 	layout.connectedNotebook->AddPage(layout.controlTab, "Control");
 	layout.connectedNotebook->AddPage(layout.firmwareTab, "Firmware");
+	layout.connectedNotebook->AddPage(layout.printTab, "Print");
 
 	layout.consoleSection = createPlainSectionPanel(layout.mainTab, layout.consoleSizer);
 	layout.mainTabSizer->Add(layout.consoleSection, 1, wxEXPAND | wxALL, 8);
@@ -72,6 +77,9 @@ UiLayout buildMainLayout(wxFrame *frame) {
 
 	layout.firmwareSection = createPlainSectionPanel(layout.firmwareTab, layout.firmwareSizer);
 	layout.firmwareTabSizer->Add(layout.firmwareSection, 0, wxEXPAND | wxALL, 8);
+
+	layout.printSection = createPlainSectionPanel(layout.printTab, layout.printSizer);
+	layout.printTabSizer->Add(layout.printSection, 1, wxEXPAND | wxALL, 8);
 
 	layout.footerSection = new wxPanel(layout.rootPanel, wxID_ANY);
 	layout.footerSizer = new wxBoxSizer(wxHORIZONTAL);

@@ -7,6 +7,8 @@
 #include <string>
 #include <functional>
 #include <queue>
+#include <thread>
+#include <atomic>
 #include <wx/sysopt.h>
 #include <wx/glcanvas.h>
 #include <wx/gbsizer.h>
@@ -17,6 +19,7 @@
 #include "main_tab_controller.h"
 #include "control_tab_controller.h"
 #include "firmware_tab_controller.h"
+#include "print_tab_controller.h"
 
 // My app class
 class MyApp: public wxApp {
@@ -32,7 +35,7 @@ class MyApp: public wxApp {
 };
 
 // My frame class
-class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
+class MyFrame: public wxFrame, public GuiHost {
 
 	// Public
 	public:
@@ -42,12 +45,7 @@ class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 		Purpose: Initializes frame
 		*/
 		MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, long style);
-		
-		/*
-		Name: Entry
-		Purpose: Thread entry point
-		*/
-		wxThread::ExitCode Entry() override;
+		~MyFrame() override;
 		
 		/*
 		Name: Thread task start
@@ -151,6 +149,13 @@ class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 		void runCalibrateBedPosition() override;
 		void runCalibrateBedOrientation() override;
 		void runSaveZAsZero() override;
+		void loadPrintFile() override;
+		void startPrintJob() override;
+		void pausePrintJob() override;
+		void resumePrintJob() override;
+		void stopPrintJob() override;
+		PrintJobStatus getPrintJobStatus() const override;
+		const PreparedPrintJob &getPreparedPrintJob() const override;
 		
 		/*
 		Name: Update distance movement text
@@ -166,6 +171,9 @@ class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 		void setConnectedUiVisible(bool visible);
 		void setStatusRowVisible(bool visible);
 		void refreshWindowLayout();
+		void applyPrintJobStatus(const PrintJobStatus &status);
+		void restoreControlsForCurrentState();
+		bool isPrintJobBlockingUi() const;
 		
 		void savePrinterSetting(const string &settingName, const string &value) override;
 		
@@ -187,11 +195,16 @@ class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 	
 	// Private
 	private:
+		void workerMain();
+		bool startWorkerThread();
+		void stopWorkerThread();
+
 		UiLayout ui;
 		PrinterWorkflows workflows;
 		MainTabController mainTabController;
 		ControlTabController controlTabController;
 		FirmwareTabController firmwareTabController;
+		PrintTabController printTabController;
 		
 		// Controls
 		wxChoice *serialPortChoice;
@@ -200,6 +213,7 @@ class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 		wxStaticText *versionText;
 		wxStaticText *statusText;
 		wxButton *switchToModeButton;
+		wxTimer *logTimer;
 		wxTimer *statusTimer;
 		
 		// Critical lock
@@ -212,15 +226,25 @@ class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 		
 		// Log queue
 		queue<string> logQueue;
+		queue<PrintJobStatus> printJobUpdateQueue;
+		std::thread workerThread;
+		std::atomic<bool> workerStopRequested;
 		
 		// Printer
 		Printer printer;
+		PreparedPrintJob preparedPrintJob;
+		PrintJobStatus printJobStatus;
 		
 		// Allow enabling controls
 		bool allowEnablingControls;
 		
 		// Fixing invalid values
 		bool fixingInvalidValues;
+
+		// Print job controls
+		bool printPauseRequested;
+		bool printStopRequested;
+		bool closing;
 };
 
 

@@ -1,6 +1,8 @@
 #include <fstream>
 #include <iomanip>
 #include <sstream>
+#include <cctype>
+#include <cmath>
 #ifndef WINDOWS
 	#include <unistd.h>
 #endif
@@ -10,6 +12,54 @@
 PrinterWorkflows::PrinterWorkflows(Printer &newPrinter) :
 	printer(newPrinter)
 {
+}
+
+namespace {
+
+string trimWhitespace(const string &value) {
+	size_t start = value.find_first_not_of(" \t\r\n");
+	if(start == string::npos)
+		return "";
+	size_t end = value.find_last_not_of(" \t\r\n");
+	return value.substr(start, end - start + 1);
+}
+
+string stripGcodeComment(const string &line) {
+	size_t commentOffset = line.find(';');
+	size_t checksumOffset = line.find('*');
+	size_t endOffset = string::npos;
+	if(commentOffset != string::npos && checksumOffset != string::npos)
+		endOffset = min(commentOffset, checksumOffset);
+	else if(commentOffset != string::npos)
+		endOffset = commentOffset;
+	else
+		endOffset = checksumOffset;
+
+	string strippedLine = endOffset == string::npos ? line : line.substr(0, endOffset);
+	return trimWhitespace(strippedLine);
+}
+
+void updatePreviewBounds(PreparedPrintJob &job, float x, float y, float z, bool &hasBounds) {
+	if(!hasBounds) {
+		job.minX = job.maxX = x;
+		job.minY = job.maxY = y;
+		job.minZ = job.maxZ = z;
+		hasBounds = true;
+		return;
+	}
+
+	job.minX = min(job.minX, x);
+	job.minY = min(job.minY, y);
+	job.minZ = min(job.minZ, z);
+	job.maxX = max(job.maxX, x);
+	job.maxY = max(job.maxY, y);
+	job.maxZ = max(job.maxZ, z);
+}
+
+float parseFloatOrDefault(const Gcode &gcode, char parameter, float fallback) {
+	return gcode.hasValue(parameter) ? stof(gcode.getValue(parameter)) : fallback;
+}
+
 }
 
 ThreadTaskResponse PrinterWorkflows::moveX(bool positive, double distanceMm, int feedRate, const function<void(const string &message)> &logFunction) {
@@ -60,6 +110,221 @@ ThreadTaskResponse PrinterWorkflows::saveZAsZero(const function<void(const strin
 	}
 	sequence.push_back("G33");
 	return executeCommandSequence(sequence, logFunction);
+}
+
+PreparedPrintJob PrinterWorkflows::preparePrintJob(const string &filePath) {
+	PreparedPrintJob job;
+	job.filePath = filePath;
+
+	ifstream file(filePath);
+	if(!file.good()) {
+		job.errorText = "Failed to open G-code file";
+		return job;
+	}
+
+	string line;
+	size_t lineNumber = 0;
+	float currentX = 0.0f;
+	float currentY = 0.0f;
+	float currentZ = 0.0f;
+	float currentE = 0.0f;
+	bool absolutePositioning = true;
+	bool absoluteExtrusion = true;
+	bool hasBounds = false;
+	while(getline(file, line)) {
+		lineNumber++;
+		job.totalLineCount++;
+
+		string sanitizedLine = stripGcodeComment(line);
+		if(sanitizedLine.empty())
+			continue;
+
+		Gcode gcode;
+		if(!gcode.parseLine(line)) {
+			job.errorLineNumber = lineNumber;
+			job.errorText = "Failed to parse G-code on line " + to_string(lineNumber);
+			return job;
+		}
+
+		if(gcode.isHostCommand())
+			continue;
+
+		string printableCommand = trimWhitespace(gcode.getOriginalCommand());
+		if(printableCommand.empty())
+			continue;
+
+		job.printableCommands.push_back(printableCommand);
+		job.parsedCommands.push_back(gcode);
+		job.acceptedCommandCount++;
+
+		if(gcode.hasValue('G')) {
+			string gValue = gcode.getValue('G');
+			if(gValue == "90")
+				absolutePositioning = true;
+			else if(gValue == "91")
+				absolutePositioning = false;
+			else if(gValue == "92") {
+				if(gcode.hasValue('X'))
+					currentX = stof(gcode.getValue('X'));
+				if(gcode.hasValue('Y'))
+					currentY = stof(gcode.getValue('Y'));
+				if(gcode.hasValue('Z'))
+					currentZ = stof(gcode.getValue('Z'));
+				if(gcode.hasValue('E'))
+					currentE = stof(gcode.getValue('E'));
+			}
+			else if(gValue == "0" || gValue == "1") {
+				float nextX = currentX;
+				float nextY = currentY;
+				float nextZ = currentZ;
+				float nextE = currentE;
+
+				if(gcode.hasValue('X')) {
+					float x = stof(gcode.getValue('X'));
+					nextX = absolutePositioning ? x : currentX + x;
+				}
+				if(gcode.hasValue('Y')) {
+					float y = stof(gcode.getValue('Y'));
+					nextY = absolutePositioning ? y : currentY + y;
+				}
+				if(gcode.hasValue('Z')) {
+					float z = stof(gcode.getValue('Z'));
+					nextZ = absolutePositioning ? z : currentZ + z;
+				}
+				if(gcode.hasValue('E')) {
+					float e = stof(gcode.getValue('E'));
+					nextE = absoluteExtrusion ? e : currentE + e;
+				}
+
+				const bool moved = nextX != currentX || nextY != currentY || nextZ != currentZ;
+				if(moved) {
+					PrintPreviewSegment segment;
+					segment.startX = currentX;
+					segment.startY = currentY;
+					segment.startZ = currentZ;
+					segment.endX = nextX;
+					segment.endY = nextY;
+					segment.endZ = nextZ;
+					segment.commandIndex = job.acceptedCommandCount - 1;
+					segment.extruding = nextE > currentE;
+					job.previewSegments.push_back(segment);
+					updatePreviewBounds(job, currentX, currentY, currentZ, hasBounds);
+					updatePreviewBounds(job, nextX, nextY, nextZ, hasBounds);
+				}
+
+				currentX = nextX;
+				currentY = nextY;
+				currentZ = nextZ;
+				currentE = nextE;
+			}
+			else if(gValue == "2" || gValue == "3") {
+				float endX = currentX;
+				float endY = currentY;
+				float endZ = currentZ;
+				float endE = currentE;
+
+				if(gcode.hasValue('X')) {
+					float x = stof(gcode.getValue('X'));
+					endX = absolutePositioning ? x : currentX + x;
+				}
+				if(gcode.hasValue('Y')) {
+					float y = stof(gcode.getValue('Y'));
+					endY = absolutePositioning ? y : currentY + y;
+				}
+				if(gcode.hasValue('Z')) {
+					float z = stof(gcode.getValue('Z'));
+					endZ = absolutePositioning ? z : currentZ + z;
+				}
+				if(gcode.hasValue('E')) {
+					float e = stof(gcode.getValue('E'));
+					endE = absoluteExtrusion ? e : currentE + e;
+				}
+
+				const bool clockwise = gValue == "2";
+				const bool extruding = endE > currentE;
+				const bool hasIJ = gcode.hasValue('I') || gcode.hasValue('J');
+				if(hasIJ) {
+					const float centerX = currentX + parseFloatOrDefault(gcode, 'I', 0.0f);
+					const float centerY = currentY + parseFloatOrDefault(gcode, 'J', 0.0f);
+					const float radius = sqrtf((currentX - centerX) * (currentX - centerX) + (currentY - centerY) * (currentY - centerY));
+					float startAngle = atan2f(currentY - centerY, currentX - centerX);
+					float endAngle = atan2f(endY - centerY, endX - centerX);
+					float angleDelta = endAngle - startAngle;
+					if(clockwise && angleDelta >= 0.0f)
+						angleDelta -= 2.0f * static_cast<float>(M_PI);
+					else if(!clockwise && angleDelta <= 0.0f)
+						angleDelta += 2.0f * static_cast<float>(M_PI);
+
+					const int steps = max(12, static_cast<int>(fabsf(angleDelta) / (static_cast<float>(M_PI) / 18.0f)));
+					float previousX = currentX;
+					float previousY = currentY;
+					float previousZ = currentZ;
+					for(int step = 1; step <= steps; step++) {
+						const float t = static_cast<float>(step) / steps;
+						const float angle = startAngle + angleDelta * t;
+						const float arcX = centerX + cosf(angle) * radius;
+						const float arcY = centerY + sinf(angle) * radius;
+						const float arcZ = currentZ + (endZ - currentZ) * t;
+						PrintPreviewSegment segment;
+						segment.startX = previousX;
+						segment.startY = previousY;
+						segment.startZ = previousZ;
+						segment.endX = arcX;
+						segment.endY = arcY;
+						segment.endZ = arcZ;
+						segment.commandIndex = job.acceptedCommandCount - 1;
+						segment.extruding = extruding;
+						job.previewSegments.push_back(segment);
+						updatePreviewBounds(job, previousX, previousY, previousZ, hasBounds);
+						updatePreviewBounds(job, arcX, arcY, arcZ, hasBounds);
+						previousX = arcX;
+						previousY = arcY;
+						previousZ = arcZ;
+					}
+				}
+				else {
+					PrintPreviewSegment segment;
+					segment.startX = currentX;
+					segment.startY = currentY;
+					segment.startZ = currentZ;
+					segment.endX = endX;
+					segment.endY = endY;
+					segment.endZ = endZ;
+					segment.commandIndex = job.acceptedCommandCount - 1;
+					segment.extruding = extruding;
+					job.previewSegments.push_back(segment);
+					updatePreviewBounds(job, currentX, currentY, currentZ, hasBounds);
+					updatePreviewBounds(job, endX, endY, endZ, hasBounds);
+				}
+
+				currentX = endX;
+				currentY = endY;
+				currentZ = endZ;
+				currentE = endE;
+			}
+		}
+
+		if(gcode.hasValue('M')) {
+			string mValue = gcode.getValue('M');
+			if(mValue == "82")
+				absoluteExtrusion = true;
+			else if(mValue == "83")
+				absoluteExtrusion = false;
+		}
+	}
+
+	if(job.acceptedCommandCount == 0) {
+		job.errorText = "No printable G-code commands found in file";
+		return job;
+	}
+
+	job.valid = true;
+	job.summaryText = "Loaded " + to_string(job.acceptedCommandCount) + " printable commands from " + to_string(job.totalLineCount) + " lines";
+	return job;
+}
+
+ThreadTaskResponse PrinterWorkflows::executePreparedPrintCommand(const string &command, const function<void(const string &message)> &logFunction) {
+	return executeCommand(command, logFunction);
 }
 
 vector<string> PrinterWorkflows::getPrinterSettingNames() const {

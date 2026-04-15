@@ -46,8 +46,8 @@ ifeq ($(TARGET_PLATFORM), WINDOWS32)
 	EXTRA_FILES += "./working/resources.o"
 	WINDRES = "i686-w64-mingw32-windres"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp printer_workflows.cpp
-		LIBS += -D USE_GUI `/usr/i686-w64-mingw32/bin/wx-config --cxxflags --libs --static`
+		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp gui_print.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp print_tab_controller.cpp spinning_cube_view.cpp printer_workflows.cpp
+		LIBS += -D USE_GUI `/usr/i686-w64-mingw32/bin/wx-config --cxxflags --libs --static gl`
 	endif
 	STRIP = "i686-w64-mingw32-strip"
 endif
@@ -63,8 +63,8 @@ ifeq ($(TARGET_PLATFORM), WINDOWS64)
 	EXTRA_FILES += "./working/resources.o"
 	WINDRES = "x86_64-w64-mingw32-windres"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp printer_workflows.cpp
-		LIBS += -D USE_GUI `/usr/i686-w64-mingw32/bin/wx-config --cxxflags --libs --static`
+		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp gui_print.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp print_tab_controller.cpp spinning_cube_view.cpp printer_workflows.cpp
+		LIBS += -D USE_GUI `/usr/i686-w64-mingw32/bin/wx-config --cxxflags --libs --static gl`
 	endif
 	STRIP = "x86_64-w64-mingw32-strip"
 endif
@@ -78,8 +78,8 @@ ifeq ($(TARGET_PLATFORM), MACOS)
 	CFLAGS_GENERIC += -stdlib=libc++
 	ARCHIVE = "$(PROGRAM_NAME) macOS.dmg"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp printer_workflows.cpp
-		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
+		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp gui_print.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp print_tab_controller.cpp spinning_cube_view.cpp printer_workflows.cpp
+		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs std,gl`
 	endif
 	STRIP = "strip"
 endif
@@ -93,8 +93,8 @@ ifeq ($(TARGET_PLATFORM), LINUX32)
 	CFLAGS_GENERIC += -static-libgcc -static-libstdc++
 	ARCHIVE = "$(PROGRAM_NAME) Linux.zip"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp printer_workflows.cpp
-		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
+		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp gui_print.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp print_tab_controller.cpp spinning_cube_view.cpp printer_workflows.cpp
+		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs std,gl`
 	endif
 	STRIP = "strip"
 endif
@@ -108,8 +108,8 @@ ifeq ($(TARGET_PLATFORM), LINUX64)
 	CFLAGS_GENERIC += -static-libgcc -static-libstdc++
 	ARCHIVE = "$(PROGRAM_NAME) Linux.zip"
 	ifeq ($(USE_GUI), TRUE)
-		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp printer_workflows.cpp
-		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs`
+		SRCS += gui.cpp gui_actions.cpp gui_invalid_values.cpp gui_print.cpp ui_layout.cpp main_tab_controller.cpp control_tab_controller.cpp firmware_tab_controller.cpp print_tab_controller.cpp spinning_cube_view.cpp printer_workflows.cpp
+		LIBS += -D USE_GUI `$(WX_CONFIG) --cxxflags --libs std,gl`
 	endif
 	STRIP = "strip"
 endif

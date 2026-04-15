@@ -43,6 +43,8 @@ class PrinterWorkflows {
 		ThreadTaskResponse calibrateBedPosition(const function<void(const string &message)> &logFunction);
 		ThreadTaskResponse calibrateBedOrientation(const function<void(const string &message)> &logFunction);
 		ThreadTaskResponse saveZAsZero(const function<void(const string &message)> &logFunction);
+		PreparedPrintJob preparePrintJob(const string &filePath);
+		ThreadTaskResponse executePreparedPrintCommand(const string &command, const function<void(const string &message)> &logFunction);
 
 		vector<string> getPrinterSettingNames() const;
 		string loadPrinterSettingValue(const string &settingName);

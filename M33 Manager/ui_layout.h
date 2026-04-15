@@ -26,6 +26,8 @@ struct UiLayout {
 	wxBoxSizer *controlTabSizer = nullptr;
 	wxPanel *firmwareTab = nullptr;
 	wxBoxSizer *firmwareTabSizer = nullptr;
+	wxPanel *printTab = nullptr;
+	wxBoxSizer *printTabSizer = nullptr;
 
 	wxPanel *firmwareSection = nullptr;
 	wxBoxSizer *firmwareSizer = nullptr;
@@ -39,6 +41,8 @@ struct UiLayout {
 	wxStaticBoxSizer *miscellaneousSizer = nullptr;
 	wxPanel *calibrationSection = nullptr;
 	wxStaticBoxSizer *calibrationSizer = nullptr;
+	wxPanel *printSection = nullptr;
+	wxBoxSizer *printSizer = nullptr;
 
 	wxPanel *footerSection = nullptr;
 	wxBoxSizer *footerSizer = nullptr;

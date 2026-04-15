@@ -52,6 +52,14 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	
 	// Clear fixing invalid values
 	fixingInvalidValues = false;
+	closing = false;
+	workerStopRequested = false;
+
+	// Initialize print job state
+	printPauseRequested = false;
+	printStopRequested = false;
+	printJobStatus.state = PRINT_JOB_IDLE;
+	printJobStatus.statusText = "No print job loaded";
 
 	// Initialize PNG image handler
 	wxImage::AddHandler(new wxPNGHandler);
@@ -114,7 +122,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	ui.connectionContentSizer->Add(ui.statusRow, 0, wxEXPAND | wxTOP, 8);
 	
 	// Create log timer
-	wxTimer *logTimer = new wxTimer(this, wxID_ANY);
+	logTimer = new wxTimer(this, wxID_ANY);
 	Bind(wxEVT_TIMER, &MyFrame::updateLog, this, logTimer->GetId());
 	logTimer->Start(100);
 	
@@ -133,6 +141,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	mainTabController.build(ui, *this);
 	controlTabController.build(ui, *this);
 	firmwareTabController.build(ui, *this);
+	printTabController.build(ui, *this);
 
 	// Create version text
 	versionText = new wxStaticText(ui.footerSection, wxID_ANY, "M33 Manager V" TOSTRING(VERSION), wxDefaultPosition, wxSize(
@@ -170,12 +179,8 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	Bind(wxEVT_THREAD_TASK_START, &MyFrame::threadTaskStart, this);
 	Bind(wxEVT_THREAD_TASK_COMPLETE, &MyFrame::threadTaskComplete, this);
 	
-	// Check if creating thread failed
-	wxThreadError createThreadResult = CreateThread(wxTHREAD_JOINABLE);
-	wxThreadError runThreadResult = createThreadResult == wxTHREAD_NO_ERROR ? GetThread()->Run() : wxTHREAD_NO_RESOURCE;
-	if(createThreadResult != wxTHREAD_NO_ERROR || runThreadResult != wxTHREAD_NO_ERROR)
-	
-		// Close
+	// Check if creating worker thread failed
+	if(!startWorkerThread())
 		Close();
 	
 	// Check if using Windows
@@ -190,10 +195,12 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#endif
 }
 
-wxThread::ExitCode MyFrame::Entry() {
+MyFrame::~MyFrame() = default;
 
-	// Loop until destroyed
-	while(!GetThread()->TestDestroy()) {
+void MyFrame::workerMain() {
+
+	// Loop until stopped
+	while(!workerStopRequested.load()) {
 		
 		// Initialize thread task
 		function<ThreadTaskResponse()> threadTask;
@@ -215,26 +222,45 @@ wxThread::ExitCode MyFrame::Entry() {
 		if(threadTask) {
 		
 			// Trigger thread start event
-			wxQueueEvent(GetEventHandler(), new wxThreadEvent(wxEVT_THREAD_TASK_START));
+			if(!workerStopRequested.load() && !closing)
+				wxQueueEvent(GetEventHandler(), new wxThreadEvent(wxEVT_THREAD_TASK_START));
 			
 			// Perform thread task
 			ThreadTaskResponse response = threadTask();
 		
 			// Trigger thread complete event
-			wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD_TASK_COMPLETE);
-			event->SetPayload(response);
-			wxQueueEvent(GetEventHandler(), event);
+			if(!workerStopRequested.load() && !closing) {
+				wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD_TASK_COMPLETE);
+				event->SetPayload(response);
+				wxQueueEvent(GetEventHandler(), event);
+			}
 		}
 		
 		// Delay
 		sleepUs(10000);
 	}
-	
-	// Return
-	return EXIT_SUCCESS;
+}
+
+bool MyFrame::startWorkerThread() {
+	try {
+		workerStopRequested = false;
+		workerThread = std::thread(&MyFrame::workerMain, this);
+		return true;
+	}
+	catch(...) {
+		return false;
+	}
+}
+
+void MyFrame::stopWorkerThread() {
+	workerStopRequested = true;
+	if(workerThread.joinable())
+		workerThread.join();
 }
 
 void MyFrame::threadTaskStart(wxThreadEvent& event) {
+	if(closing)
+		return;
 
 	// Initialize callback function
 	function<void()> callbackFunction;
@@ -258,6 +284,8 @@ void MyFrame::threadTaskStart(wxThreadEvent& event) {
 }
 
 void MyFrame::threadTaskComplete(wxThreadEvent& event) {
+	if(closing)
+		return;
 
 	// Initialize callback function
 	function<void(ThreadTaskResponse response)> callbackFunction;
@@ -281,17 +309,37 @@ void MyFrame::threadTaskComplete(wxThreadEvent& event) {
 }
 
 void MyFrame::close(wxCloseEvent& event) {
-	// Stop status timer
-	statusTimer->Stop();
+	if(closing) {
+		event.Veto(false);
+		return;
+	}
+
+	closing = true;
+
+	// Stop timers and unbind timer handlers before destruction.
+	if(logTimer) {
+		logTimer->Stop();
+		Unbind(wxEVT_TIMER, &MyFrame::updateLog, this, logTimer->GetId());
+		delete logTimer;
+		logTimer = nullptr;
+	}
+
+	if(statusTimer) {
+		statusTimer->Stop();
+		Unbind(wxEVT_TIMER, &MyFrame::updateStatus, this, statusTimer->GetId());
+		delete statusTimer;
+		statusTimer = nullptr;
+	}
+
+	Unbind(wxEVT_THREAD_TASK_START, &MyFrame::threadTaskStart, this);
+	Unbind(wxEVT_THREAD_TASK_COMPLETE, &MyFrame::threadTaskComplete, this);
 
 	// Disconnect printer
 	printer.disconnect();
 	
-	// Check if thread is running
-	if(GetThread() && GetThread()->IsRunning())
-	
-		// Destroy thread
-		GetThread()->Delete();
+	stopWorkerThread();
+
+	DeletePendingEvents();
 	
 	// Destroy self
 	Destroy();
@@ -588,6 +636,26 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 			}
 		}
 	}
+
+	// Process print job updates
+	while(true) {
+		PrintJobStatus status;
+		bool hasStatus = false;
+
+		{
+			wxCriticalSectionLocker lock(criticalLock);
+			if(!printJobUpdateQueue.empty()) {
+				status = printJobUpdateQueue.front();
+				printJobUpdateQueue.pop();
+				hasStatus = true;
+			}
+		}
+
+		if(!hasStatus)
+			break;
+
+		applyPrintJobStatus(status);
+	}
 }
 
 void MyFrame::updateStatus(wxTimerEvent& event) {
@@ -771,6 +839,9 @@ void MyFrame::refreshWindowLayout() {
 
 void MyFrame::enableConnectionControls(bool enable) {
 
+	if(enable && isPrintJobBlockingUi())
+		return;
+
 	// Enable or disable connection controls
 	serialPortChoice->Enable(enable);
 	refreshSerialPortsButton->Enable(enable);
@@ -779,11 +850,17 @@ void MyFrame::enableConnectionControls(bool enable) {
 
 void MyFrame::enableCommandControls(bool enable) {
 
+	if(enable && isPrintJobBlockingUi())
+		return;
+
 	// Enable or disable manual command controls
 	mainTabController.enableCommandControls(enable);
 }
 
 void MyFrame::enableFirmwareControls(bool enable) {
+
+	if(enable && isPrintJobBlockingUi())
+		return;
 
 	// Enable or disable firmware controls
 	firmwareTabController.enableFirmwareControls(enable);
@@ -792,11 +869,17 @@ void MyFrame::enableFirmwareControls(bool enable) {
 
 void MyFrame::enableMovementControls(bool enable) {
 
+	if(enable && isPrintJobBlockingUi())
+		return;
+
 	// Enable or disable movement controls
 	controlTabController.enableMovementControls(enable);
 }
 
 void MyFrame::enableSettingsControls(bool enable) {
+
+	if(enable && isPrintJobBlockingUi())
+		return;
 
 	// Enable or disable settings controls
 	controlTabController.enableSettingsControls(enable);
@@ -804,11 +887,17 @@ void MyFrame::enableSettingsControls(bool enable) {
 
 void MyFrame::enableMiscellaneousControls(bool enable) {
 
+	if(enable && isPrintJobBlockingUi())
+		return;
+
 	// Enable or disable miscellaneous controls
 	controlTabController.enableMiscellaneousControls(enable);
 }
 
 void MyFrame::enableCalibrationControls(bool enable) {
+
+	if(enable && isPrintJobBlockingUi())
+		return;
 
 	// Enable or disable calibration controls
 	controlTabController.enableCalibrationControls(enable);
