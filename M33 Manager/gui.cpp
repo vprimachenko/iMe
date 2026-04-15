@@ -426,17 +426,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	));
 	
 	// Create backward movement button
-	backwardMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	backwardMovementButton = new wxButton(panel, wxID_ANY, "↑", wxPoint(
 	#ifdef WINDOWS
 		615, 19
 	#endif
@@ -466,17 +456,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	
 	// Create left movement button
-	leftMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	leftMovementButton = new wxButton(panel, wxID_ANY, "←", wxPoint(
 	#ifdef WINDOWS
 		565, 67
 	#endif
@@ -506,17 +486,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	
 	// Create home movement button
-	homeMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	homeMovementButton = new wxButton(panel, wxID_ANY, "Home", wxPoint(
 	#ifdef WINDOWS
 		615, 67
 	#endif
@@ -527,15 +497,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 		624, 70
 	#endif
 	), wxSize(
-	#ifdef WINDOWS
-		-1, -1
-	#endif
-	#ifdef MACOS
-		27, -1
-	#endif
-	#ifdef LINUX
-		-1, -1
-	#endif
+		45, -1
 	));
 	homeMovementButton->Enable(false);
 	homeMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent& event) {
@@ -545,17 +507,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	
 	// Create right movement button
-	rightMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	rightMovementButton = new wxButton(panel, wxID_ANY, "→", wxPoint(
 	#ifdef WINDOWS
 		665, 67
 	#endif
@@ -585,17 +537,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	
 	// Create forward movement button
-	forwardMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	forwardMovementButton = new wxButton(panel, wxID_ANY, "↓", wxPoint(
 	#ifdef WINDOWS
 		615, 115
 	#endif
@@ -625,17 +567,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	
 	// Create up movement button
-	upMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	upMovementButton = new wxButton(panel, wxID_ANY, "Z+", wxPoint(
 	#ifdef WINDOWS
 		695, 43
 	#endif
@@ -665,17 +597,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	});
 	
 	// Create down movement button
-	downMovementButton = new wxBitmapButton(panel, wxID_ANY, loadImage(refreshPngData, sizeof(refreshPngData),
-	#ifdef WINDOWS
-		-1, -1, 0, 0
-	#endif
-	#ifdef MACOS
-		-1, -1, 0, 2
-	#endif
-	#ifdef LINUX
-		-1, -1, 0, 0
-	#endif
-	), wxPoint(
+	downMovementButton = new wxButton(panel, wxID_ANY, "Z-", wxPoint(
 	#ifdef WINDOWS
 		695, 89
 	#endif
