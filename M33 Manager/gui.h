@@ -11,17 +11,12 @@
 #include <wx/glcanvas.h>
 #include <wx/gbsizer.h>
 #include "common.h"
-#include "printer.h"
+#include "gui_host.h"
 #include "ui_layout.h"
-
-using namespace std;
-
-
-// Thread task response struct
-struct ThreadTaskResponse {
-	string message;
-	int style;
-};
+#include "printer_workflows.h"
+#include "main_tab_controller.h"
+#include "control_tab_controller.h"
+#include "firmware_tab_controller.h"
 
 // My app class
 class MyApp: public wxApp {
@@ -37,7 +32,7 @@ class MyApp: public wxApp {
 };
 
 // My frame class
-class MyFrame: public wxFrame, public wxThreadHelper {
+class MyFrame: public wxFrame, public wxThreadHelper, public GuiHost {
 
 	// Public
 	public:
@@ -52,7 +47,7 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		Name: Entry
 		Purpose: Thread entry point
 		*/
-		wxThread::ExitCode Entry();
+		wxThread::ExitCode Entry() override;
 		
 		/*
 		Name: Thread task start
@@ -82,25 +77,25 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		Name: Switch to mode
 		Purpose: Switches printer into firmware or bootloader mode
 		*/
-		void switchToMode(wxCommandEvent& event);
+		void switchToMode();
 		
 		/*
 		Name: Install iMe firmware
 		Purpose: Installs iMe firmware as the printer's firmware
 		*/
-		void installImeFirmware(wxCommandEvent& event);
+		void installImeFirmware() override;
 		
 		/*
 		Name: Install M3D firmware
 		Purpose: Installs M3D firmware as the printer's firmware
 		*/
-		void installM3dFirmware(wxCommandEvent& event);
+		void installM3dFirmware() override;
 		
 		/*
 		Name: Install drivers
 		Purpose: Installs device drivers for the printer
 		*/
-		void installDrivers(wxCommandEvent& event);
+		void installDrivers() override;
 		
 		/*
 		Name: Log to console
@@ -124,7 +119,7 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		Name: Install firmware from file
 		Purpose: Installs a file as the printer's firmware
 		*/
-		void installFirmwareFromFile(wxCommandEvent& event);
+		void installFirmwareFromFile() override;
 		
 		/*
 		Name: Get available serial ports
@@ -142,35 +137,24 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		Name: Send command manually
 		Purpose: Sends a command manually to the printer
 		*/
-		void sendCommandManually(wxCommandEvent& event);
-		
-		/*
-		Name: Send command
-		Purpose: Sends a command to the printer
-		*/
-		void sendCommand(const string &command, function<void()> threadStartCallback = nullptr, function<void(ThreadTaskResponse response)> threadCompleteCallback = nullptr);
-		
-		/*
-		Name: Install firmware
-		Purpose: Flashes the printer's firmware to the provided file
-		*/
-		ThreadTaskResponse installFirmware(const string &firmwareLocation);
+		vector<string> getPrinterSettingNames() override;
+		string loadPrinterSettingValue(const string &settingName) override;
+		void runManualCommand(const string &command) override;
+		void runMoveX(bool positive, double distanceMm, int feedRate) override;
+		void runMoveY(bool positive, double distanceMm, int feedRate) override;
+		void runMoveZ(bool positive, double distanceMm, int feedRate) override;
+		void runHome() override;
+		void runMotorsOn() override;
+		void runMotorsOff() override;
+		void runFanOn() override;
+		void runFanOff() override;
+		void runCalibrateBedPosition() override;
+		void runCalibrateBedOrientation() override;
+		void runSaveZAsZero() override;
 		
 		/*
 		Name: Update distance movement text
 		Purpose: Changes distance movement's text to the current distance set by the slider
-		*/
-		void updateDistanceMovementText();
-		
-		/*
-		Name: Update feed rate movement text
-		Purpose: Changes feed rate movement's text to the current feed rate set by the slider
-		*/
-		void updateFeedRateMovementText();
-		
-		/*
-		Name: Enable controls
-		Purpose: Enables or disabled groups of controls
 		*/
 		void enableConnectionControls(bool enable);
 		void enableCommandControls(bool enable);
@@ -183,17 +167,7 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		void setStatusRowVisible(bool visible);
 		void refreshWindowLayout();
 		
-		/*
-		Name: Set printer setting value
-		Purpose: Sets the value displayed in the printer setting input to the selected printer setting
-		*/
-		void setPrinterSettingValue();
-		
-		/*
-		Name: Save printer setting
-		Purpose: Saves the selected printer setting to be the provided value
-		*/
-		void savePrinterSetting(wxCommandEvent& event);
+		void savePrinterSetting(const string &settingName, const string &value) override;
 		
 		/*
 		Name: Check invalid values
@@ -214,6 +188,10 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 	// Private
 	private:
 		UiLayout ui;
+		PrinterWorkflows workflows;
+		MainTabController mainTabController;
+		ControlTabController controlTabController;
+		FirmwareTabController firmwareTabController;
 		
 		// Controls
 		wxChoice *serialPortChoice;
@@ -221,36 +199,8 @@ class MyFrame: public wxFrame, public wxThreadHelper {
 		wxButton *connectionButton;
 		wxStaticText *versionText;
 		wxStaticText *statusText;
-		wxButton *installFirmwareFromFileButton;
-		wxButton *installImeFirmwareButton;
-		wxButton *installM3dFirmwareButton;
 		wxButton *switchToModeButton;
 		wxTimer *statusTimer;
-		wxTextCtrl *commandInput;
-		wxTextCtrl *consoleOutput;
-		wxButton *sendCommandButton;
-		wxButton *installDriversButton;
-		wxButton *backwardMovementButton;
-		wxButton *forwardMovementButton;
-		wxButton *rightMovementButton;
-		wxButton *leftMovementButton;
-		wxButton *upMovementButton;
-		wxButton *downMovementButton;
-		wxButton *homeMovementButton;
-		wxStaticText *distanceMovementText;
-		wxStaticText *feedRateMovementText;
-		wxSlider *distanceMovementSlider;
-		wxSlider *feedRateMovementSlider;
-		wxChoice *printerSettingChoice;
-		wxTextCtrl *printerSettingInput;
-		wxButton *savePrinterSettingButton;
-		wxButton *motorsOnButton;
-		wxButton *motorsOffButton;
-		wxButton *fanOnButton;
-		wxButton *fanOffButton;
-		wxButton *calibrateBedPositionButton;
-		wxButton *calibrateBedOrientationButton;
-		wxButton *saveZAsZeroButton;
 		
 		// Critical lock
 		wxCriticalSection criticalLock;
