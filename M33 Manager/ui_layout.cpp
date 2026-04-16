@@ -26,9 +26,8 @@ UiLayout buildMainLayout(wxFrame *frame) {
 	layout.rootSizer = new wxBoxSizer(wxVERTICAL);
 	layout.rootPanel->SetSizer(layout.rootSizer);
 
-	layout.connectionSection = createSectionPanel(layout.rootPanel, "Connection", layout.connectionSizer);
-	layout.connectionContentSizer = new wxBoxSizer(wxVERTICAL);
-	layout.connectionSizer->Add(layout.connectionContentSizer, 1, wxEXPAND | wxALL, 8);
+	layout.connectionSection = createPlainSectionPanel(layout.rootPanel, layout.connectionSizer);
+	layout.connectionContentSizer = layout.connectionSizer;
 
 	layout.statusRow = new wxPanel(layout.connectionSection, wxID_ANY);
 	layout.statusRowSizer = new wxBoxSizer(wxHORIZONTAL);

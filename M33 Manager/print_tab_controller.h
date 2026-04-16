@@ -19,7 +19,6 @@ class PrintTabController {
 		GuiHost *host = nullptr;
 		wxTextCtrl *filePathText = nullptr;
 		wxStaticText *summaryText = nullptr;
-		wxStaticText *statusText = nullptr;
 		wxGauge *progressGauge = nullptr;
 		wxStaticText *progressText = nullptr;
 		wxButton *browseButton = nullptr;

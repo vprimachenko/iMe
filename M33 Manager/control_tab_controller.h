@@ -18,10 +18,13 @@ class ControlTabController {
 			void enableSettingsControls(bool enable);
 			void enableMiscellaneousControls(bool enable);
 			void enableCalibrationControls(bool enable);
+			void enableStandbyControls(bool enable);
 			void setPrinterSettingValue();
 
 	private:
 		void savePrinterSetting(wxCommandEvent &event);
+		void updateStandbyTemperatureLabel();
+		void updateManualNozzleTemperatureLabel();
 
 		GuiHost *host = nullptr;
 		wxButton *backwardMovementButton = nullptr;
@@ -40,6 +43,12 @@ class ControlTabController {
 			wxButton *motorsOffButton = nullptr;
 			wxButton *fanOnButton = nullptr;
 			wxButton *fanOffButton = nullptr;
+			wxStaticText *manualNozzleTemperatureText = nullptr;
+			wxSlider *manualNozzleTemperatureSlider = nullptr;
+			wxButton *heatNozzleButton = nullptr;
+			wxButton *coolDownNozzleButton = nullptr;
+			wxStaticText *pauseStandbyTemperatureText = nullptr;
+			wxSlider *pauseStandbyTemperatureSlider = nullptr;
 			wxButton *calibrateBedPositionButton = nullptr;
 			wxButton *calibrateBedOrientationButton = nullptr;
 			wxButton *saveCurrentPositionAsHomeButton = nullptr;

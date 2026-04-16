@@ -6,21 +6,10 @@ void MyFrame::checkInvalidValues() {
 	// Check if printer is connected
 	if(printer.isConnected()) {
 
-		// Lock
-		wxCriticalSectionLocker lock(criticalLock);
-
-		// Append thread start callback to queue
-		threadStartCallbackQueue.push([=]() -> void {});
-
-		// Append thread task to queue
-		threadTaskQueue.push([=]() -> ThreadTaskResponse {
+		enqueueBackgroundTask(nullptr, [=]() -> ThreadTaskResponse {
 			workflows.ensureMode(BOOTLOADER);
-			// Return empty response
 			return {"", 0};
-		});
-
-		// Append thread complete callback to queue
-		threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+		}, [=](ThreadTaskResponse response) -> void {
 
 			// Check if printer is still connected
 			if(printer.isConnected()) {
@@ -34,16 +23,12 @@ void MyFrame::checkInvalidValues() {
 					if(report.hasInvalidBedOrientation) {
 	
 						// Display bed orientation calibration dialog
-						wxMessageDialog *dial = new wxMessageDialog(nullptr, "Bed orientation is invalid. Calibrate?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
+						wxMessageDialog dial(nullptr, "Bed orientation is invalid. Calibrate?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
 		
 						// Check if calibrating bed orientation
-						if(dial->ShowModal() == wxID_YES) {
+						if(dial.ShowModal() == wxID_YES) {
 		
-							// Lock
-							wxCriticalSectionLocker lock(criticalLock);
-
-							// Append thread start callback to queue
-							threadStartCallbackQueue.push([=]() -> void {
+							enqueueBackgroundTask([=]() -> void {
 					
 								// Stop status timer
 								statusTimer->Stop();
@@ -73,17 +58,12 @@ void MyFrame::checkInvalidValues() {
 								// Set status text
 								statusText->SetLabel("Calibrating bed orientation");
 								statusText->SetForegroundColour(wxColour(255, 180, 0));
-							});
-
-							// Append thread task to queue
-							threadTaskQueue.push([=]() -> ThreadTaskResponse {
+							},
+							[=]() -> ThreadTaskResponse {
 								workflows.ensureMode(FIRMWARE);
-								// Return empty response
 								return {"", 0};
-							});
-
-							// Append thread complete callback to queue
-							threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+							},
+							[=](ThreadTaskResponse response) -> void {
 					
 								// Clear fixing invalid values
 								fixingInvalidValues = false;
@@ -122,18 +102,11 @@ void MyFrame::checkInvalidValues() {
 									// Calibrate bed orientation
 									runCalibrateBedOrientation();
 						
-									// Append thread start callback to queue
-									threadStartCallbackQueue.push([=]() -> void {});
-
-									// Append thread task to queue
-									threadTaskQueue.push([=]() -> ThreadTaskResponse {
-
-										// Return empty response
+									enqueueBackgroundTask(nullptr,
+									[=]() -> ThreadTaskResponse {
 										return {"", 0};
-									});
-
-									// Append thread complete callback to queue
-									threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+									},
+									[=](ThreadTaskResponse response) -> void {
 						
 										// Clear fixing invalid values
 										fixingInvalidValues = false;
@@ -216,16 +189,12 @@ void MyFrame::checkInvalidValues() {
 					if(report.hasInvalidBedPosition) {
 	
 						// Display bed position calibration dialog
-						wxMessageDialog *dial = new wxMessageDialog(nullptr, "Bed position is invalid. Calibrate?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
+						wxMessageDialog dial(nullptr, "Bed position is invalid. Calibrate?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
 		
 						// Check if calibrating bed position
-						if(dial->ShowModal() == wxID_YES) {
+						if(dial.ShowModal() == wxID_YES) {
 				
-							// Lock
-							wxCriticalSectionLocker lock(criticalLock);
-
-							// Append thread start callback to queue
-							threadStartCallbackQueue.push([=]() -> void {
+							enqueueBackgroundTask([=]() -> void {
 					
 								// Stop status timer
 								statusTimer->Stop();
@@ -255,17 +224,12 @@ void MyFrame::checkInvalidValues() {
 								// Set status text
 								statusText->SetLabel("Calibrating bed position");
 								statusText->SetForegroundColour(wxColour(255, 180, 0));
-							});
-
-							// Append thread task to queue
-							threadTaskQueue.push([=]() -> ThreadTaskResponse {
+							},
+							[=]() -> ThreadTaskResponse {
 								workflows.ensureMode(FIRMWARE);
-								// Return empty response
 								return {"", 0};
-							});
-
-							// Append thread complete callback to queue
-							threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+							},
+							[=](ThreadTaskResponse response) -> void {
 					
 								// Clear fixing invalid values
 								fixingInvalidValues = false;
@@ -304,21 +268,11 @@ void MyFrame::checkInvalidValues() {
 									// Calibrate bed position
 									runCalibrateBedPosition();
 						
-									// Lock
-									wxCriticalSectionLocker lock(criticalLock);
-
-									// Append thread start callback to queue
-									threadStartCallbackQueue.push([=]() -> void {});
-
-									// Append thread task to queue
-									threadTaskQueue.push([=]() -> ThreadTaskResponse {
-
-										// Return empty response
+									enqueueBackgroundTask(nullptr,
+									[=]() -> ThreadTaskResponse {
 										return {"", 0};
-									});
-
-									// Append thread complete callback to queue
-									threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+									},
+									[=](ThreadTaskResponse response) -> void {
 						
 										// Clear fixing invalid values
 										fixingInvalidValues = false;
@@ -395,10 +349,10 @@ void MyFrame::checkInvalidValues() {
 					// Check if printer's firmware is corrupt
 					if(report.hasInvalidFirmware) {
 						// Display firmware installation dialog
-						wxMessageDialog *dial = new wxMessageDialog(nullptr, "Firmware is corrupt. Install " + workflows.getFirmwareDisplayName(report.firmwareAction) + "?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
+						wxMessageDialog dial(nullptr, "Firmware is corrupt. Install " + workflows.getFirmwareDisplayName(report.firmwareAction) + "?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
 		
 						// Check if installing firmware
-						if(dial->ShowModal() == wxID_YES) {
+						if(dial.ShowModal() == wxID_YES) {
 				
 							// Set fixing invalid values
 							fixingInvalidValues = true;
@@ -417,21 +371,11 @@ void MyFrame::checkInvalidValues() {
 								installImeFirmware();
 							}
 					
-							// Lock
-							wxCriticalSectionLocker lock(criticalLock);
-
-							// Append thread start callback to queue
-							threadStartCallbackQueue.push([=]() -> void {});
-
-							// Append thread task to queue
-							threadTaskQueue.push([=]() -> ThreadTaskResponse {
-
-								// Return empty response
+							enqueueBackgroundTask(nullptr,
+							[=]() -> ThreadTaskResponse {
 								return {"", 0};
-							});
-
-							// Append thread complete callback to queue
-							threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+							},
+							[=](ThreadTaskResponse response) -> void {
 					
 								// Clear fixing invalid values
 								fixingInvalidValues = false;
@@ -464,10 +408,10 @@ void MyFrame::checkInvalidValues() {
 					// Otherwise check if firmware is incompatible or outdated
 					else if(report.firmwareUpdateAvailable) {
 						// Display firmware installation dialog
-						wxMessageDialog *dial = new wxMessageDialog(nullptr, static_cast<string>(report.firmwareIsIncompatible ? "Firmware is incompatible" : "Newer firmware available") + ". Update to " + workflows.getFirmwareDisplayName(report.firmwareAction) + "?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
+						wxMessageDialog dial(nullptr, static_cast<string>(report.firmwareIsIncompatible ? "Firmware is incompatible" : "Newer firmware available") + ". Update to " + workflows.getFirmwareDisplayName(report.firmwareAction) + "?", "M33 Manager", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION);
 	
 						// Check if installing firmware
-						if(dial->ShowModal() == wxID_YES) {
+						if(dial.ShowModal() == wxID_YES) {
 			
 							// Set fixing invalid values
 							fixingInvalidValues = true;
@@ -486,21 +430,11 @@ void MyFrame::checkInvalidValues() {
 								installImeFirmware();
 							}
 				
-							// Lock
-							wxCriticalSectionLocker lock(criticalLock);
-
-							// Append thread start callback to queue
-							threadStartCallbackQueue.push([=]() -> void {});
-
-							// Append thread task to queue
-							threadTaskQueue.push([=]() -> ThreadTaskResponse {
-
-								// Return empty response
+							enqueueBackgroundTask(nullptr,
+							[=]() -> ThreadTaskResponse {
 								return {"", 0};
-							});
-
-							// Append thread complete callback to queue
-							threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+							},
+							[=](ThreadTaskResponse response) -> void {
 				
 								// Clear fixing invalid values
 								fixingInvalidValues = false;

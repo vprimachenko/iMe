@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <sstream>
 #include <iostream>
+#include <algorithm>
 #include <wx/mstream.h>
 #include "gui.h"
 #ifdef WINDOWS
@@ -14,6 +15,15 @@
 // Custom events
 wxDEFINE_EVENT(wxEVT_THREAD_TASK_START, wxThreadEvent);
 wxDEFINE_EVENT(wxEVT_THREAD_TASK_COMPLETE, wxThreadEvent);
+
+namespace {
+constexpr int DEFAULT_PAUSE_STANDBY_TEMPERATURE_C = 120;
+constexpr int MIN_PAUSE_STANDBY_TEMPERATURE_C = 80;
+constexpr int MAX_PAUSE_STANDBY_TEMPERATURE_C = 160;
+constexpr int DEFAULT_MANUAL_NOZZLE_TEMPERATURE_C = 200;
+constexpr int MIN_MANUAL_NOZZLE_TEMPERATURE_C = 150;
+constexpr int MAX_MANUAL_NOZZLE_TEMPERATURE_C = 260;
+}
 
 // Supporting function implementation
 wxBitmap loadImage(const unsigned char *data, unsigned long long size, int width = -1, int height = -1, int offsetX = 0, int offsetY = 0) {
@@ -57,8 +67,18 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	// Initialize print job state
 	printPauseRequested = false;
 	printStopRequested = false;
+	printPauseStandbyApplied = false;
+	hasTrackedPrintNozzleTarget = false;
+	lastPrintNozzleTargetC = 0;
 	printJobStatus.state = PRINT_JOB_IDLE;
 	printJobStatus.statusText = "No print job loaded";
+	connectionStatusText = "Not connected";
+	connectionStatusColour = wxColour(255, 0, 0);
+	wxConfig config("M33 Manager");
+	pauseStandbyTemperatureC = static_cast<int>(config.ReadLong("PauseStandbyTemperatureC", DEFAULT_PAUSE_STANDBY_TEMPERATURE_C));
+	pauseStandbyTemperatureC = max(MIN_PAUSE_STANDBY_TEMPERATURE_C, min(MAX_PAUSE_STANDBY_TEMPERATURE_C, pauseStandbyTemperatureC));
+	manualNozzleTemperatureC = static_cast<int>(config.ReadLong("ManualNozzleTemperatureC", DEFAULT_MANUAL_NOZZLE_TEMPERATURE_C));
+	manualNozzleTemperatureC = max(MIN_MANUAL_NOZZLE_TEMPERATURE_C, min(MAX_MANUAL_NOZZLE_TEMPERATURE_C, manualNozzleTemperatureC));
 
 	// Initialize PNG image handler
 	wxImage::AddHandler(new wxPNGHandler);
@@ -113,23 +133,7 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	connectionRowSizer->Add(connectionButton, 0, wxALIGN_CENTER_VERTICAL);
 
 	ui.connectionContentSizer->Add(connectionRowSizer, 0, wxEXPAND);
-
-	ui.statusRowSizer->Add(new wxStaticText(ui.statusRow, wxID_ANY, "Status:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
-	statusText = new wxStaticText(ui.statusRow, wxID_ANY, "Not connected");
-	statusText->SetForegroundColour(wxColour(255, 0, 0));
-	ui.statusRowSizer->Add(statusText, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
-	ui.connectionContentSizer->Add(ui.statusRow, 0, wxEXPAND | wxTOP, 8);
 	
-	// Create log timer
-	logTimer = new wxTimer(this, wxID_ANY);
-	Bind(wxEVT_TIMER, &MyFrame::updateLog, this, logTimer->GetId());
-	logTimer->Start(100);
-	
-	// Create status timer
-	statusTimer = new wxTimer(this, wxID_ANY);
-	Bind(wxEVT_TIMER, &MyFrame::updateStatus, this, statusTimer->GetId());
-	statusTimer->Start(100);
-
 	mainTabController.build(ui, *this);
 	controlTabController.build(ui, *this);
 	firmwareTabController.build(ui, *this);
@@ -169,11 +173,14 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	#endif
 	);
 	versionText->SetFont(font);
+	statusText = new wxStaticText(ui.footerSection, wxID_ANY, connectionStatusText);
+	statusText->SetForegroundColour(connectionStatusColour);
+	ui.footerSizer->Add(statusText, 0, wxALIGN_CENTER_VERTICAL | wxBOTTOM, 2);
 	ui.footerSizer->AddStretchSpacer(1);
 	ui.footerSizer->Add(versionText, 0, wxALIGN_RIGHT);
 
-	setStatusRowVisible(false);
 	setConnectedUiVisible(false);
+	refreshFooterStatus();
 	Layout();
 	
 	// Thread task events
@@ -183,6 +190,17 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 	// Check if creating worker thread failed
 	if(!startWorkerThread())
 		Close();
+
+	// Create log timer after the full UI is built so timer callbacks
+	// never run against partially constructed controls.
+	logTimer = new wxTimer(this, wxID_ANY);
+	Bind(wxEVT_TIMER, &MyFrame::updateLog, this, logTimer->GetId());
+	logTimer->Start(100);
+	
+	// Create status timer after the rest of the UI is ready.
+	statusTimer = new wxTimer(this, wxID_ANY);
+	Bind(wxEVT_TIMER, &MyFrame::updateStatus, this, statusTimer->GetId());
+	statusTimer->Start(100);
 	
 	// Check if using Windows
 	#ifdef WINDOWS
@@ -198,6 +216,19 @@ MyFrame::MyFrame(const wxString& title, const wxPoint& pos, const wxSize& size, 
 
 MyFrame::~MyFrame() {
 	shutdownFrameResources();
+}
+
+void MyFrame::enqueueBackgroundTask(
+	function<void()> startCallback,
+	function<ThreadTaskResponse()> task,
+	function<void(ThreadTaskResponse)> completeCallback
+) {
+	wxCriticalSectionLocker lock(criticalLock);
+	pendingTaskQueue.push({
+		startCallback ? startCallback : []() -> void {},
+		task,
+		completeCallback ? completeCallback : [](ThreadTaskResponse response) -> void {}
+	});
 }
 
 void MyFrame::shutdownFrameResources() {
@@ -218,16 +249,12 @@ void MyFrame::shutdownFrameResources() {
 	Unbind(wxEVT_THREAD_TASK_START, &MyFrame::threadTaskStart, this);
 	Unbind(wxEVT_THREAD_TASK_COMPLETE, &MyFrame::threadTaskComplete, this);
 
-	printer.disconnect();
 	stopWorkerThread();
+	printer.disconnect();
 
 	wxCriticalSectionLocker lock(criticalLock);
-	while(!threadStartCallbackQueue.empty())
-		threadStartCallbackQueue.pop();
-	while(!threadTaskQueue.empty())
-		threadTaskQueue.pop();
-	while(!threadCompleteCallbackQueue.empty())
-		threadCompleteCallbackQueue.pop();
+	while(!pendingTaskQueue.empty())
+		pendingTaskQueue.pop();
 	while(!logQueue.empty())
 		logQueue.pop();
 	while(!printJobUpdateQueue.empty())
@@ -238,37 +265,35 @@ void MyFrame::workerMain() {
 	// Loop until stopped
 	while(!workerStopRequested.load()) {
 		
-		// Initialize thread task
-		function<ThreadTaskResponse()> threadTask;
+		// Initialize task
+		PendingGuiTask pendingTask;
+		bool hasPendingTask = false;
 		
 		{
 			// Lock
 			wxCriticalSectionLocker lock(criticalLock);
 			
-			// Check if a thread task exists
-			if(!threadTaskQueue.empty()) {
-	
-				// Set thread task to next thread task function
-				threadTask = threadTaskQueue.front();
-				threadTaskQueue.pop();
+			if(!pendingTaskQueue.empty()) {
+				pendingTask = pendingTaskQueue.front();
+				pendingTaskQueue.pop();
+				hasPendingTask = true;
 			}
 		}
 		
-		// Check if thread task exists
-		if(threadTask) {
+		if(hasPendingTask && pendingTask.task) {
 		
-			// Trigger thread start event
-			if(!workerStopRequested.load() && !closing)
-				wxQueueEvent(GetEventHandler(), new wxThreadEvent(wxEVT_THREAD_TASK_START));
-			
-			// Perform thread task
-			ThreadTaskResponse response = threadTask();
-		
-			// Trigger thread complete event
 			if(!workerStopRequested.load() && !closing) {
-				wxThreadEvent *event = new wxThreadEvent(wxEVT_THREAD_TASK_COMPLETE);
-				event->SetPayload(response);
-				wxQueueEvent(GetEventHandler(), event);
+				wxThreadEvent *startEvent = new wxThreadEvent(wxEVT_THREAD_TASK_START);
+				startEvent->SetPayload(ThreadTaskStartPayload{pendingTask.startCallback});
+				wxQueueEvent(GetEventHandler(), startEvent);
+			}
+			
+			ThreadTaskResponse response = pendingTask.task();
+		
+			if(!workerStopRequested.load() && !closing) {
+				wxThreadEvent *completeEvent = new wxThreadEvent(wxEVT_THREAD_TASK_COMPLETE);
+				completeEvent->SetPayload(ThreadTaskCompletePayload{response, pendingTask.completeCallback});
+				wxQueueEvent(GetEventHandler(), completeEvent);
 			}
 		}
 		
@@ -297,51 +322,17 @@ void MyFrame::stopWorkerThread() {
 void MyFrame::threadTaskStart(wxThreadEvent& event) {
 	if(closing)
 		return;
-
-	// Initialize callback function
-	function<void()> callbackFunction;
-	
-	{
-		// Lock
-		wxCriticalSectionLocker lock(criticalLock);
-		
-		// Check if a thread start callback is specified and one exists
-		if(!threadStartCallbackQueue.empty()) {
-	
-			// Set callback function to next start callback function
-			callbackFunction = threadStartCallbackQueue.front();
-			threadStartCallbackQueue.pop();
-		}
-	}
-
-	// Run callback function if it exists
-	if(callbackFunction)
-		callbackFunction();
+	ThreadTaskStartPayload payload = event.GetPayload<ThreadTaskStartPayload>();
+	if(payload.callback)
+		payload.callback();
 }
 
 void MyFrame::threadTaskComplete(wxThreadEvent& event) {
 	if(closing)
 		return;
-
-	// Initialize callback function
-	function<void(ThreadTaskResponse response)> callbackFunction;
-	
-	{
-		// Lock
-		wxCriticalSectionLocker lock(criticalLock);
-		
-		// Check if a thread complete callback is specified and one exists
-		if(!threadCompleteCallbackQueue.empty()) {
-	
-			// Set callback function to next complete callback function
-			callbackFunction = threadCompleteCallbackQueue.front();
-			threadCompleteCallbackQueue.pop();
-		}
-	}
-
-	// Run callback function if it exists
-	if(callbackFunction)
-		callbackFunction(event.GetPayload<ThreadTaskResponse>());
+	ThreadTaskCompletePayload payload = event.GetPayload<ThreadTaskCompletePayload>();
+	if(payload.callback)
+		payload.callback(payload.response);
 }
 
 void MyFrame::close(wxCloseEvent& event) {
@@ -369,29 +360,22 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 		// Get current serial port choice
 		string currentChoice = static_cast<string>(serialPortChoice->GetString(serialPortChoice->GetSelection()));
 
-		// Lock
-		wxCriticalSectionLocker lock(criticalLock);
-
-		// Append thread start callback to queue
-		threadStartCallbackQueue.push([=]() -> void {
+		enqueueBackgroundTask([=]() -> void {
 			// Stop status timer
 			statusTimer->Stop();
 		
 			// Disable connection controls
 			enableConnectionControls(false);
 
-			// Set status text
-			setStatusRowVisible(true);
-			statusText->SetLabel("Connecting");
-			statusText->SetForegroundColour(wxColour(255, 180, 0));
+			connectionStatusText = "Connecting";
+			connectionStatusColour = wxColour(255, 180, 0);
+			refreshFooterStatus();
 			refreshWindowLayout();
 			
 			// Clear allow enabling controls
 			allowEnablingControls = false;
-		});
-		
-		// Append thread task to queue
-		threadTaskQueue.push([=]() -> ThreadTaskResponse {
+		},
+		[=]() -> ThreadTaskResponse {
 			// Connect to printer
 			printer.connect(currentChoice != "Auto" ? currentChoice : "");
 
@@ -401,10 +385,8 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			
 			// Return empty response
 			return {"", 0};
-		});
-
-		// Append thread complete callback to queue
-		threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+		},
+		[=](ThreadTaskResponse response) -> void {
 			// Set allow enabling controls
 			allowEnablingControls = true;
 	
@@ -415,7 +397,6 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			if(printer.isConnected()) {
 
 				// Show connected-only content
-				setStatusRowVisible(true);
 				setConnectedUiVisible(true);
 
 				// Change connection button to disconnect	
@@ -435,7 +416,6 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			
 				// Restore compact disconnected layout
 				setConnectedUiVisible(false);
-				setStatusRowVisible(false);
 
 				// Enable connection controls
 				enableConnectionControls(true);
@@ -451,32 +431,23 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 	// Otherwise
 	else {
 		
-		// Lock
-		wxCriticalSectionLocker lock(criticalLock);
-
-		// Append thread start callback to queue
-		threadStartCallbackQueue.push([=]() -> void {
+		enqueueBackgroundTask([=]() -> void {
 		
 			// Stop status timer
 			statusTimer->Stop();
-		});
-		
-		// Append thread task to queue
-		threadTaskQueue.push([=]() -> ThreadTaskResponse {
+		},
+		[=]() -> ThreadTaskResponse {
 		
 			// Disconnect printer
 			printer.disconnect();
 			
 			// Return empty response
 			return {"", 0};
-		});
-
-		// Append thread complete callback to queue
-		threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+		},
+		[=](ThreadTaskResponse response) -> void {
 	
 			// Restore compact disconnected layout
 			setConnectedUiVisible(false);
-			setStatusRowVisible(false);
 
 			// Disable firmware controls
 			enableFirmwareControls(false);
@@ -493,6 +464,7 @@ void MyFrame::changePrinterConnection(wxCommandEvent& event) {
 			
 			// Disable calibration controls
 			enableCalibrationControls(false);
+			enableStandbyControls(true);
 		
 			// Change connection button to connect
 			connectionButton->SetLabel("Connect");
@@ -522,7 +494,6 @@ void MyFrame::logToConsole(const string &message) {
 }
 
 void MyFrame::updateLog(wxTimerEvent& event) {
-
 	// Loop forever
 	while(true) {
 	
@@ -555,99 +526,6 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 			// Otherwise
 			else {
 			
-				// Check if not fixing invalid values
-				if(!fixingInvalidValues) {
-			
-					// Check if printer is switching modes
-					if(message == "Switching printer into bootloader mode" || message == "Switching printer into firmware mode") {
-				
-						// Disable movement controls
-						enableMovementControls(false);
-						enableCommandControls(false);
-					
-						// Disable settings controls
-						enableSettingsControls(false);
-					
-						// Disable miscellaneous controls
-						enableMiscellaneousControls(false);
-						
-						// Disable calibration controls
-						enableCalibrationControls(false);
-					}
-				
-					// Otherwise check if printer is in firmware mode
-					else if(message == "Printer is in firmware mode") {
-			
-						// Set switch mode button label
-						switchToModeButton->SetLabel("Switch to bootloader mode");
-						updatePrintUiAvailability();
-					
-						// Check if controls can be enabled
-						if(allowEnablingControls) {
-					
-							// Enable movement controls
-							enableMovementControls(true);
-							enableCommandControls(true);
-						
-							// Disable settings controls
-							enableSettingsControls(false);
-						
-							// Enable miscellaneous controls
-							enableMiscellaneousControls(true);
-							
-							// Enable calibration controls
-							enableCalibrationControls(true);
-						}
-					}
-				
-					// Otherwise check if printer is in bootloader mode
-					else if(message == "Printer is in bootloader mode") {
-				
-						// Set switch mode button label
-						switchToModeButton->SetLabel("Switch to firmware mode");
-						updatePrintUiAvailability();
-					
-						// Check if controls can be enabled
-						if(allowEnablingControls) {
-					
-							// Disable movement controls
-							enableMovementControls(false);
-							enableCommandControls(true);
-						
-							// Enable settings controls
-							enableSettingsControls(true);
-						
-							// Disable miscellaneous controls
-							enableMiscellaneousControls(false);
-							
-							// Disable calibration controls
-							enableCalibrationControls(false);
-						}
-					}
-				
-					// Otherwise check if the printer has been disconnected
-					else if(message == "Printer has been disconnected") {
-						updatePrintUiAvailability();
-				
-						// Check if controls can be enabled
-						if(allowEnablingControls) {
-				
-							// Disable movement controls
-							enableMovementControls(false);
-							enableCommandControls(false);
-						
-							// Disable settings controls
-							enableSettingsControls(false);
-						
-							// Disable miscellaneous controls
-							enableMiscellaneousControls(false);
-							
-							// Disable calibration controls
-							enableCalibrationControls(false);
-						}
-					}
-				}
-		
 				// Append message to console's output
 				mainTabController.appendConsoleMessage(message);
 			}
@@ -676,7 +554,6 @@ void MyFrame::updateLog(wxTimerEvent& event) {
 }
 
 void MyFrame::updateStatus(wxTimerEvent& event) {
-
 	// Check if getting printer status was successful
 	string status = printer.getStatus();
 	if(!status.empty()) {
@@ -688,8 +565,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 			if(connectionButton->GetLabel() != "Disconnect")
 				connectionButton->SetLabel("Disconnect");
 
-			// Show connected layout and status row
-			setStatusRowVisible(true);
+			// Show connected layout
 			setConnectedUiVisible(true);
 			enableCommandControls(true);
 		
@@ -700,8 +576,8 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 			connectionButton->Enable(true);
 			updatePrintUiAvailability();
 		
-			// Set status text color
-			statusText->SetForegroundColour(wxColour(0, 255, 0));
+			connectionStatusText = status;
+			connectionStatusColour = wxColour(0, 255, 0);
 		}
 	
 		// Otherwise
@@ -712,7 +588,6 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 
 				// Restore compact disconnected layout
 				setConnectedUiVisible(false);
-				setStatusRowVisible(false);
 				
 				// Disable firmware controls
 				enableFirmwareControls(false);
@@ -729,6 +604,7 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 				
 				// Disable calibration controls
 				enableCalibrationControls(false);
+				enableStandbyControls(true);
 		
 				// Change connection button to connect
 				connectionButton->SetLabel("Connect");
@@ -742,12 +618,11 @@ void MyFrame::updateStatus(wxTimerEvent& event) {
 				logToConsole("Printer has been disconnected");
 			}
 		
-			// Set status text color
-			statusText->SetForegroundColour(wxColour(255, 0, 0));
+			connectionStatusText = status;
+			connectionStatusColour = wxColour(255, 0, 0);
 		}
 
-		// Update status text
-		statusText->SetLabel(status);
+		refreshFooterStatus();
 	}
 }
 
@@ -771,18 +646,10 @@ void MyFrame::refreshSerialPorts(wxCommandEvent& event) {
 	// Disable button that triggered event
 	FindWindowById(event.GetId())->Enable(false);
 	
-	// Lock
-	wxCriticalSectionLocker lock(criticalLock);
-
-	// Append thread start callback to queue
-	threadStartCallbackQueue.push([=]() -> void {
-	
-		// Disable connection controls
+	enqueueBackgroundTask([=]() -> void {
 		enableConnectionControls(false);
-	});
-	
-	// Append thread task to queue
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	},
+	[=]() -> ThreadTaskResponse {
 	
 		// Delay
 		sleepUs(300000);
@@ -798,10 +665,8 @@ void MyFrame::refreshSerialPorts(wxCommandEvent& event) {
 		
 		// Return serial ports
 		return {response, 0};
-	});
-	
-	// Append thread complete callback to queue
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 	
 		// Enable connection controls
 		enableConnectionControls(true);
@@ -841,9 +706,7 @@ void MyFrame::setConnectedUiVisible(bool visible) {
 }
 
 void MyFrame::setStatusRowVisible(bool visible) {
-
-	// Show or hide the status row in the connection section
-	ui.statusRow->Show(visible);
+	(void)visible;
 }
 
 void MyFrame::refreshWindowLayout() {
@@ -854,6 +717,32 @@ void MyFrame::refreshWindowLayout() {
 	Layout();
 	GetSizer()->Fit(this);
 	SetMinSize(GetSize());
+}
+
+void MyFrame::refreshFooterStatus() {
+	wxString footerStatus = connectionStatusText;
+	wxColour footerColour = connectionStatusColour;
+
+	if(printJobStatus.state == PRINT_JOB_LOADED) {
+		footerStatus = printJobStatus.statusText.empty() ? "Ready to print" : printJobStatus.statusText;
+		footerColour = wxColour(120, 120, 120);
+	}
+	else if(printJobStatus.state == PRINT_JOB_RUNNING || printJobStatus.state == PRINT_JOB_PAUSED || printJobStatus.state == PRINT_JOB_STOPPING) {
+		footerStatus = printJobStatus.statusText.empty() ? "Printing..." : printJobStatus.statusText;
+		footerColour = printJobStatus.state == PRINT_JOB_PAUSED ? wxColour(255, 180, 0) : wxColour(80, 170, 255);
+	}
+	else if(printJobStatus.state == PRINT_JOB_COMPLETED) {
+		footerStatus = "Print completed";
+		footerColour = wxColour(0, 200, 0);
+	}
+	else if(printJobStatus.state == PRINT_JOB_FAILED) {
+		footerStatus = printJobStatus.errorText.empty() ? "Print failed" : printJobStatus.errorText;
+		footerColour = wxColour(255, 0, 0);
+	}
+
+	statusText->SetLabel(footerStatus);
+	statusText->SetForegroundColour(footerColour);
+	ui.footerSection->Layout();
 }
 
 void MyFrame::enableConnectionControls(bool enable) {
@@ -913,6 +802,28 @@ void MyFrame::enableMiscellaneousControls(bool enable) {
 	controlTabController.enableMiscellaneousControls(enable);
 }
 
+int MyFrame::getPauseStandbyTemperatureC() const {
+	return pauseStandbyTemperatureC;
+}
+
+void MyFrame::setPauseStandbyTemperatureC(int temperatureC) {
+	pauseStandbyTemperatureC = max(MIN_PAUSE_STANDBY_TEMPERATURE_C, min(MAX_PAUSE_STANDBY_TEMPERATURE_C, temperatureC));
+	wxConfig config("M33 Manager");
+	config.Write("PauseStandbyTemperatureC", pauseStandbyTemperatureC);
+	config.Flush();
+}
+
+int MyFrame::getManualNozzleTemperatureC() const {
+	return manualNozzleTemperatureC;
+}
+
+void MyFrame::setManualNozzleTemperatureC(int temperatureC) {
+	manualNozzleTemperatureC = max(MIN_MANUAL_NOZZLE_TEMPERATURE_C, min(MAX_MANUAL_NOZZLE_TEMPERATURE_C, temperatureC));
+	wxConfig config("M33 Manager");
+	config.Write("ManualNozzleTemperatureC", manualNozzleTemperatureC);
+	config.Flush();
+}
+
 void MyFrame::enableCalibrationControls(bool enable) {
 
 	if(enable && isPrintJobBlockingUi())
@@ -920,6 +831,13 @@ void MyFrame::enableCalibrationControls(bool enable) {
 
 	// Enable or disable calibration controls
 	controlTabController.enableCalibrationControls(enable);
+}
+
+void MyFrame::enableStandbyControls(bool enable) {
+	if(enable && isPrintJobBlockingUi())
+		return;
+
+	controlTabController.enableStandbyControls(enable);
 }
 
 // Check if using Windows

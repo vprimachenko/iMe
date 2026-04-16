@@ -40,6 +40,10 @@ class PrinterWorkflows {
 		ThreadTaskResponse motorsOff(const function<void(const string &message)> &logFunction);
 		ThreadTaskResponse fanOn(const function<void(const string &message)> &logFunction);
 		ThreadTaskResponse fanOff(const function<void(const string &message)> &logFunction);
+		ThreadTaskResponse setManualNozzleTemperature(int temperatureC, const function<void(const string &message)> &logFunction);
+		ThreadTaskResponse setNozzleStandbyTemperature(int temperatureC, const function<void(const string &message)> &logFunction);
+		ThreadTaskResponse reheatNozzleForResume(int targetTemperatureC, const function<void(const string &message)> &logFunction);
+		ThreadTaskResponse coolDownNozzle(const function<void(const string &message)> &logFunction);
 			ThreadTaskResponse calibrateBedPosition(const function<void(const string &message)> &logFunction);
 			ThreadTaskResponse calibrateBedOrientation(const function<void(const string &message)> &logFunction);
 			ThreadTaskResponse saveCurrentPositionAsHome(const function<void(const string &message)> &logFunction);

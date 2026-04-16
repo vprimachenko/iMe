@@ -83,9 +83,20 @@ class PreviewCanvas : public wxGLCanvas {
 		}
 
 		void setPreparedPrintJob(const PreparedPrintJob &newJob, size_t newCompletedCommandCount) {
+			const bool jobGeometryChanged =
+				job.filePath != newJob.filePath ||
+				job.previewSegments.size() != newJob.previewSegments.size() ||
+				job.minX != newJob.minX ||
+				job.minY != newJob.minY ||
+				job.minZ != newJob.minZ ||
+				job.maxX != newJob.maxX ||
+				job.maxY != newJob.maxY ||
+				job.maxZ != newJob.maxZ;
+
 			job = newJob;
 			completedCommandCount = newCompletedCommandCount;
-			resetView();
+			if(jobGeometryChanged)
+				resetView();
 			Refresh(false);
 		}
 
@@ -107,6 +118,14 @@ class PreviewCanvas : public wxGLCanvas {
 		}
 
 		void resize(wxSizeEvent &event) {
+			if(context) {
+				SetCurrent(*context);
+				const wxSize logicalSize = GetClientSize();
+				const double scaleFactor = GetContentScaleFactor();
+				const int pixelWidth = std::max(1, static_cast<int>(logicalSize.GetWidth() * scaleFactor));
+				const int pixelHeight = std::max(1, static_cast<int>(logicalSize.GetHeight() * scaleFactor));
+				glViewport(0, 0, pixelWidth, pixelHeight);
+			}
 			Refresh(false);
 			event.Skip();
 		}
@@ -236,12 +255,15 @@ class PreviewCanvas : public wxGLCanvas {
 				return;
 
 			SetCurrent(*context);
-			const wxSize size = GetClientSize();
-			const int width = std::max(size.GetWidth(), 1);
-			const int height = std::max(size.GetHeight(), 1);
-			const float aspect = static_cast<float>(width) / height;
+			const wxSize logicalSize = GetClientSize();
+			const double scaleFactor = GetContentScaleFactor();
+			const int logicalWidth = std::max(logicalSize.GetWidth(), 1);
+			const int logicalHeight = std::max(logicalSize.GetHeight(), 1);
+			const int pixelWidth = std::max(1, static_cast<int>(logicalWidth * scaleFactor));
+			const int pixelHeight = std::max(1, static_cast<int>(logicalHeight * scaleFactor));
+			const float aspect = static_cast<float>(logicalWidth) / logicalHeight;
 
-			glViewport(0, 0, width, height);
+			glViewport(0, 0, pixelWidth, pixelHeight);
 			glEnable(GL_DEPTH_TEST);
 			glClearColor(0.05f, 0.06f, 0.09f, 1.0f);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);

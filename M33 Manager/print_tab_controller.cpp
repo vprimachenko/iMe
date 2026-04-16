@@ -14,7 +14,6 @@ void PrintTabController::build(const UiLayout &ui, GuiHost &newHost) {
 	});
 
 	summaryText = new wxStaticText(ui.printSection, wxID_ANY, "Choose a G-code file to prepare it for printing.");
-	statusText = new wxStaticText(ui.printSection, wxID_ANY, "No print job loaded");
 
 	preview = new SpinningCubeView(ui.printSection);
 
@@ -23,6 +22,7 @@ void PrintTabController::build(const UiLayout &ui, GuiHost &newHost) {
 
 	startButton = new wxButton(ui.printSection, wxID_ANY, "Start");
 	startButton->Enable(false);
+	startButton->Hide();
 	startButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
 		host->startPrintJob();
 	});
@@ -58,12 +58,10 @@ void PrintTabController::build(const UiLayout &ui, GuiHost &newHost) {
 
 	ui.printSizer->Add(topRowSizer, 0, wxEXPAND | wxBOTTOM, 8);
 	ui.printSizer->Add(summaryText, 0, wxEXPAND | wxBOTTOM, 4);
-	ui.printSizer->Add(statusText, 0, wxEXPAND | wxBOTTOM, 8);
 	ui.printSizer->Add(preview, 1, wxEXPAND | wxBOTTOM, 8);
 	ui.printSizer->Add(progressSizer, 0, wxEXPAND | wxBOTTOM, 8);
 	ui.printSizer->Add(controlSizer, 0, wxALIGN_LEFT);
 
-	applyPrintJobStatus(host->getPrintJobStatus());
 }
 
 void PrintTabController::applyPrintJobStatus(const PrintJobStatus &status) {
@@ -74,13 +72,6 @@ void PrintTabController::applyPrintJobStatus(const PrintJobStatus &status) {
 		filePathText->SetHint("No G-code file selected");
 
 	summaryText->SetLabel(status.summaryText.empty() ? "Choose a G-code file to prepare it for printing." : status.summaryText);
-
-	wxString statusLabel = status.statusText.empty() ? "No print job loaded" : status.statusText;
-	if(!status.errorText.empty())
-		statusLabel = status.errorText;
-	if(!interactiveEnabled && !interactiveDisabledMessage.empty() && status.state != PRINT_JOB_RUNNING && status.state != PRINT_JOB_PAUSED && status.state != PRINT_JOB_STOPPING)
-		statusLabel = interactiveDisabledMessage;
-	statusText->SetLabel(statusLabel);
 
 	const int range = static_cast<int>(std::max<size_t>(status.totalCommands, 1));
 	const int value = static_cast<int>(std::min(status.currentCommandIndex, status.totalCommands));

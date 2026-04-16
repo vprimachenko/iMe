@@ -8,40 +8,71 @@ using namespace std;
 namespace {
 constexpr int SAFE_MANUAL_FEED_RATE_XY = 600;
 constexpr int SAFE_MANUAL_FEED_RATE_Z = 30;
+constexpr int MIN_MANUAL_NOZZLE_TEMPERATURE = 150;
+constexpr int MAX_MANUAL_NOZZLE_TEMPERATURE = 260;
+constexpr int MIN_PAUSE_STANDBY_TEMPERATURE = 80;
+constexpr int MAX_PAUSE_STANDBY_TEMPERATURE = 160;
 }
 
 void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 	host = &newHost;
+	GuiHost *const hostPtr = host;
 
 	backwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↑");
 	backwardMovementButton->Enable(false);
+	backwardMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runMoveY(true, 1.0, SAFE_MANUAL_FEED_RATE_XY);
+	});
 
 	leftMovementButton = new wxButton(ui.movementSection, wxID_ANY, "←");
 	leftMovementButton->Enable(false);
+	leftMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runMoveX(false, 1.0, SAFE_MANUAL_FEED_RATE_XY);
+	});
 
 	homeMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Auto-center X/Y");
 	homeMovementButton->SetMinSize(wxSize(130, -1));
 	homeMovementButton->Enable(false);
-	homeMovementButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
-		host->runHome();
+	homeMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runHome();
 	});
 
 	rightMovementButton = new wxButton(ui.movementSection, wxID_ANY, "→");
 	rightMovementButton->Enable(false);
+	rightMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runMoveX(true, 1.0, SAFE_MANUAL_FEED_RATE_XY);
+	});
 
 	forwardMovementButton = new wxButton(ui.movementSection, wxID_ANY, "↓");
 	forwardMovementButton->Enable(false);
+	forwardMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runMoveY(false, 1.0, SAFE_MANUAL_FEED_RATE_XY);
+	});
 
 	upMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Z+");
 	upMovementButton->Enable(false);
+	upMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runMoveZ(true, 1.0, SAFE_MANUAL_FEED_RATE_Z);
+	});
 
 	downMovementButton = new wxButton(ui.movementSection, wxID_ANY, "Z-");
 	downMovementButton->Enable(false);
+	downMovementButton->Bind(wxEVT_BUTTON, [hostPtr](wxCommandEvent &event) {
+		if(hostPtr)
+			hostPtr->runMoveZ(false, 1.0, SAFE_MANUAL_FEED_RATE_Z);
+	});
 
-	auto bindMoveButton = [this](wxButton *button, const function<void()> &moveAction) {
+	auto bindMoveButton = [hostPtr, this](wxButton *button, const function<void(GuiHost &)> &moveAction) {
 		movementStepButtons.push_back(button);
-		button->Bind(wxEVT_BUTTON, [moveAction](wxCommandEvent &event) {
-			moveAction();
+		button->Bind(wxEVT_BUTTON, [hostPtr, moveAction](wxCommandEvent &event) {
+			if(hostPtr)
+				moveAction(*hostPtr);
 		});
 	};
 
@@ -81,24 +112,24 @@ void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 	wxButton *zNegativeMediumButton = createStepButton("1");
 	wxButton *zNegativeLargeButton = createStepButton("10");
 
-	bindMoveButton(yLargeButton, [=]() { host->runMoveY(true, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(yMediumButton, [=]() { host->runMoveY(true, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(ySmallButton, [=]() { host->runMoveY(true, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(xNegativeLargeButton, [=]() { host->runMoveX(false, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(xNegativeMediumButton, [=]() { host->runMoveX(false, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(xNegativeSmallButton, [=]() { host->runMoveX(false, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(xPositiveSmallButton, [=]() { host->runMoveX(true, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(xPositiveMediumButton, [=]() { host->runMoveX(true, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(xPositiveLargeButton, [=]() { host->runMoveX(true, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(yNegativeSmallButton, [=]() { host->runMoveY(false, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(yNegativeMediumButton, [=]() { host->runMoveY(false, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(yNegativeLargeButton, [=]() { host->runMoveY(false, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
-	bindMoveButton(zLargeButton, [=]() { host->runMoveZ(true, 10.0, SAFE_MANUAL_FEED_RATE_Z); });
-	bindMoveButton(zMediumButton, [=]() { host->runMoveZ(true, 1.0, SAFE_MANUAL_FEED_RATE_Z); });
-	bindMoveButton(zSmallButton, [=]() { host->runMoveZ(true, 0.1, SAFE_MANUAL_FEED_RATE_Z); });
-	bindMoveButton(zNegativeSmallButton, [=]() { host->runMoveZ(false, 0.1, SAFE_MANUAL_FEED_RATE_Z); });
-	bindMoveButton(zNegativeMediumButton, [=]() { host->runMoveZ(false, 1.0, SAFE_MANUAL_FEED_RATE_Z); });
-	bindMoveButton(zNegativeLargeButton, [=]() { host->runMoveZ(false, 10.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(yLargeButton, [](GuiHost &host) { host.runMoveY(true, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yMediumButton, [](GuiHost &host) { host.runMoveY(true, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(ySmallButton, [](GuiHost &host) { host.runMoveY(true, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xNegativeLargeButton, [](GuiHost &host) { host.runMoveX(false, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xNegativeMediumButton, [](GuiHost &host) { host.runMoveX(false, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xNegativeSmallButton, [](GuiHost &host) { host.runMoveX(false, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xPositiveSmallButton, [](GuiHost &host) { host.runMoveX(true, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xPositiveMediumButton, [](GuiHost &host) { host.runMoveX(true, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(xPositiveLargeButton, [](GuiHost &host) { host.runMoveX(true, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yNegativeSmallButton, [](GuiHost &host) { host.runMoveY(false, 0.1, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yNegativeMediumButton, [](GuiHost &host) { host.runMoveY(false, 1.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(yNegativeLargeButton, [](GuiHost &host) { host.runMoveY(false, 10.0, SAFE_MANUAL_FEED_RATE_XY); });
+	bindMoveButton(zLargeButton, [](GuiHost &host) { host.runMoveZ(true, 10.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zMediumButton, [](GuiHost &host) { host.runMoveZ(true, 1.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zSmallButton, [](GuiHost &host) { host.runMoveZ(true, 0.1, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zNegativeSmallButton, [](GuiHost &host) { host.runMoveZ(false, 0.1, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zNegativeMediumButton, [](GuiHost &host) { host.runMoveZ(false, 1.0, SAFE_MANUAL_FEED_RATE_Z); });
+	bindMoveButton(zNegativeLargeButton, [](GuiHost &host) { host.runMoveZ(false, 10.0, SAFE_MANUAL_FEED_RATE_Z); });
 
 	wxGridBagSizer *movementGridSizer = new wxGridBagSizer(8, 8);
 	backwardMovementButton->SetMinSize(wxSize(56, -1));
@@ -193,11 +224,63 @@ void ControlTabController::build(const UiLayout &ui, GuiHost &newHost) {
 		host->runFanOff();
 	});
 
+	manualNozzleTemperatureText = new wxStaticText(ui.miscellaneousSection, wxID_ANY, wxEmptyString);
+	manualNozzleTemperatureSlider = new wxSlider(
+		ui.miscellaneousSection,
+		wxID_ANY,
+		host->getManualNozzleTemperatureC(),
+		MIN_MANUAL_NOZZLE_TEMPERATURE,
+		MAX_MANUAL_NOZZLE_TEMPERATURE,
+		wxDefaultPosition,
+		wxDefaultSize,
+		wxSL_HORIZONTAL
+	);
+	manualNozzleTemperatureSlider->Bind(wxEVT_SLIDER, [=](wxCommandEvent &event) {
+		host->setManualNozzleTemperatureC(manualNozzleTemperatureSlider->GetValue());
+		updateManualNozzleTemperatureLabel();
+	});
+	updateManualNozzleTemperatureLabel();
+
+	heatNozzleButton = new wxButton(ui.miscellaneousSection, wxID_ANY, "Heat nozzle");
+	heatNozzleButton->Enable(false);
+	heatNozzleButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
+		host->runHeatNozzle();
+	});
+
+	coolDownNozzleButton = new wxButton(ui.miscellaneousSection, wxID_ANY, "Cool nozzle");
+	coolDownNozzleButton->Enable(false);
+	coolDownNozzleButton->Bind(wxEVT_BUTTON, [=](wxCommandEvent &event) {
+		host->runCoolDownNozzle();
+	});
+
+	pauseStandbyTemperatureText = new wxStaticText(ui.miscellaneousSection, wxID_ANY, wxEmptyString);
+	pauseStandbyTemperatureSlider = new wxSlider(
+		ui.miscellaneousSection,
+		wxID_ANY,
+		host->getPauseStandbyTemperatureC(),
+		MIN_PAUSE_STANDBY_TEMPERATURE,
+		MAX_PAUSE_STANDBY_TEMPERATURE,
+		wxDefaultPosition,
+		wxDefaultSize,
+		wxSL_HORIZONTAL
+	);
+	pauseStandbyTemperatureSlider->Bind(wxEVT_SLIDER, [=](wxCommandEvent &event) {
+		host->setPauseStandbyTemperatureC(pauseStandbyTemperatureSlider->GetValue());
+		updateStandbyTemperatureLabel();
+	});
+	updateStandbyTemperatureLabel();
+
 	wxBoxSizer *miscellaneousSectionSizer = new wxBoxSizer(wxVERTICAL);
 	miscellaneousSectionSizer->Add(motorsOnButton, 0, wxEXPAND | wxBOTTOM, 8);
 	miscellaneousSectionSizer->Add(motorsOffButton, 0, wxEXPAND | wxBOTTOM, 8);
 	miscellaneousSectionSizer->Add(fanOnButton, 0, wxEXPAND | wxBOTTOM, 8);
-	miscellaneousSectionSizer->Add(fanOffButton, 0, wxEXPAND);
+	miscellaneousSectionSizer->Add(fanOffButton, 0, wxEXPAND | wxBOTTOM, 12);
+	miscellaneousSectionSizer->Add(manualNozzleTemperatureText, 0, wxEXPAND | wxBOTTOM, 4);
+	miscellaneousSectionSizer->Add(manualNozzleTemperatureSlider, 0, wxEXPAND | wxBOTTOM, 8);
+	miscellaneousSectionSizer->Add(heatNozzleButton, 0, wxEXPAND | wxBOTTOM, 8);
+	miscellaneousSectionSizer->Add(coolDownNozzleButton, 0, wxEXPAND | wxBOTTOM, 12);
+	miscellaneousSectionSizer->Add(pauseStandbyTemperatureText, 0, wxEXPAND | wxBOTTOM, 4);
+	miscellaneousSectionSizer->Add(pauseStandbyTemperatureSlider, 0, wxEXPAND);
 	ui.miscellaneousSizer->Add(miscellaneousSectionSizer, 1, wxEXPAND | wxALL, 8);
 
 	calibrateBedPositionButton = new wxButton(ui.calibrationSection, wxID_ANY, "Calibrate bed position");
@@ -272,6 +355,13 @@ void ControlTabController::enableMiscellaneousControls(bool enable) {
 	motorsOffButton->Enable(enable);
 	fanOnButton->Enable(enable);
 	fanOffButton->Enable(enable);
+	heatNozzleButton->Enable(enable);
+	coolDownNozzleButton->Enable(enable);
+}
+
+void ControlTabController::enableStandbyControls(bool enable) {
+	manualNozzleTemperatureSlider->Enable(enable);
+	pauseStandbyTemperatureSlider->Enable(enable);
 }
 
 void ControlTabController::enableCalibrationControls(bool enable) {
@@ -291,4 +381,12 @@ void ControlTabController::savePrinterSetting(wxCommandEvent &event) {
 		if(!value.empty())
 			host->savePrinterSetting(static_cast<string>(printerSettingChoice->GetString(printerSettingChoice->GetSelection())), value);
 	}
+}
+
+void ControlTabController::updateStandbyTemperatureLabel() {
+	pauseStandbyTemperatureText->SetLabel("Pause standby temperature: " + to_string(host->getPauseStandbyTemperatureC()) + "C");
+}
+
+void ControlTabController::updateManualNozzleTemperatureLabel() {
+	manualNozzleTemperatureText->SetLabel("Manual nozzle temperature: " + to_string(host->getManualNozzleTemperatureC()) + "C");
 }

@@ -12,7 +12,7 @@ struct UiLayout {
 	wxBoxSizer *rootSizer = nullptr;
 
 	wxPanel *connectionSection = nullptr;
-	wxStaticBoxSizer *connectionSizer = nullptr;
+	wxBoxSizer *connectionSizer = nullptr;
 	wxBoxSizer *connectionContentSizer = nullptr;
 	wxPanel *statusRow = nullptr;
 	wxBoxSizer *statusRowSizer = nullptr;

@@ -41,7 +41,13 @@ void MainTabController::enableCommandControls(bool enable) {
 }
 
 void MainTabController::appendConsoleMessage(const string &message) {
-	consoleOutput->AppendText(static_cast<string>(consoleOutput->GetValue().IsEmpty() ? "" : "\n") + ">> " + message);
+	string prefix = ">> ";
+	if(message.rfind("Send:", 0) == 0)
+		prefix = "<< ";
+	else if(message.rfind("Receive:", 0) == 0)
+		prefix = ">> ";
+
+	consoleOutput->AppendText(static_cast<string>(consoleOutput->GetValue().IsEmpty() ? "" : "\n") + prefix + message);
 	consoleOutput->ShowPosition(consoleOutput->GetLastPosition());
 }
 

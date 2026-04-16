@@ -121,6 +121,22 @@ ThreadTaskResponse PrinterWorkflows::fanOff(const function<void(const string &me
 	return executeCommandSequence({"M107"}, logFunction);
 }
 
+ThreadTaskResponse PrinterWorkflows::setManualNozzleTemperature(int temperatureC, const function<void(const string &message)> &logFunction) {
+	return executeCommandSequence({"M104 S" + to_string(temperatureC)}, logFunction);
+}
+
+ThreadTaskResponse PrinterWorkflows::setNozzleStandbyTemperature(int temperatureC, const function<void(const string &message)> &logFunction) {
+	return executeCommandSequence({"M104 S" + to_string(temperatureC)}, logFunction);
+}
+
+ThreadTaskResponse PrinterWorkflows::reheatNozzleForResume(int targetTemperatureC, const function<void(const string &message)> &logFunction) {
+	return executeCommandSequence({"M109 S" + to_string(targetTemperatureC)}, logFunction);
+}
+
+ThreadTaskResponse PrinterWorkflows::coolDownNozzle(const function<void(const string &message)> &logFunction) {
+	return executeCommandSequence({"M104 S0"}, logFunction);
+}
+
 ThreadTaskResponse PrinterWorkflows::calibrateBedPosition(const function<void(const string &message)> &logFunction) {
 	return executeCommandSequence({"G91", "G0 Z3 F90", "G90", "M109 S150", "M104 S0", "M107", "G30"}, logFunction);
 }

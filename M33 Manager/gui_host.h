@@ -69,6 +69,10 @@ struct PrintJobStatus {
 class GuiHost {
 	public:
 		virtual ~GuiHost() {}
+		virtual int getPauseStandbyTemperatureC() const = 0;
+		virtual void setPauseStandbyTemperatureC(int temperatureC) = 0;
+		virtual int getManualNozzleTemperatureC() const = 0;
+		virtual void setManualNozzleTemperatureC(int temperatureC) = 0;
 		virtual vector<string> getPrinterSettingNames() = 0;
 		virtual string loadPrinterSettingValue(const string &settingName) = 0;
 		virtual void runManualCommand(const string &command) = 0;
@@ -80,6 +84,8 @@ class GuiHost {
 		virtual void runMotorsOff() = 0;
 		virtual void runFanOn() = 0;
 		virtual void runFanOff() = 0;
+		virtual void runHeatNozzle() = 0;
+		virtual void runCoolDownNozzle() = 0;
 			virtual void runCalibrateBedPosition() = 0;
 			virtual void runCalibrateBedOrientation() = 0;
 			virtual void runSaveCurrentPositionAsHome() = 0;

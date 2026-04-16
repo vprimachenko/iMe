@@ -14,12 +14,7 @@ void MyFrame::switchToMode() {
 	wxString buttonLabel = switchToModeButton->GetLabel();
 	operatingModes newOperatingMode = buttonLabel == "Switch to firmware mode" ? FIRMWARE : BOOTLOADER;
 
-	// Lock
-	wxCriticalSectionLocker lock(criticalLock);
-
-	// Append thread start callback to queue
-	threadStartCallbackQueue.push([=]() -> void {
-	
+	enqueueBackgroundTask([=]() -> void {
 		// Disable connection controls
 		enableConnectionControls(false);
 	
@@ -38,15 +33,11 @@ void MyFrame::switchToMode() {
 		
 		// Disable calibration controls
 		enableCalibrationControls(false);
-	});
-	
-	// Append thread task to queue
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	},
+	[=]() -> ThreadTaskResponse {
 		return workflows.switchToMode(newOperatingMode);
-	});
-	
-	// Append thread complete callback to queue
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 		
 		// Enable connection button
 		connectionButton->Enable(true);
@@ -72,11 +63,7 @@ void MyFrame::switchToMode() {
 
 void MyFrame::installImeFirmware() {
 
-	// Lock
-	wxCriticalSectionLocker lock(criticalLock);
-
-	// Append thread start callback to queue
-	threadStartCallbackQueue.push([=]() -> void {
+	enqueueBackgroundTask([=]() -> void {
 	
 		// Stop status timer
 		statusTimer->Stop();
@@ -106,15 +93,11 @@ void MyFrame::installImeFirmware() {
 		
 		// Clear allow enabling controls
 		allowEnablingControls = false;
-	});
-	
-	// Append thread task to queue
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	},
+	[=]() -> ThreadTaskResponse {
 		return workflows.installImeFirmware();
-	});
-	
-	// Append thread complete callback to queue
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 	
 		// Set allow enabling controls
 		allowEnablingControls = true;
@@ -156,11 +139,7 @@ void MyFrame::installImeFirmware() {
 
 void MyFrame::installM3dFirmware() {
 
-	// Lock
-	wxCriticalSectionLocker lock(criticalLock);
-
-	// Append thread start callback to queue
-	threadStartCallbackQueue.push([=]() -> void {
+	enqueueBackgroundTask([=]() -> void {
 	
 		// Stop status timer
 		statusTimer->Stop();
@@ -190,15 +169,11 @@ void MyFrame::installM3dFirmware() {
 		
 		// Clear allow enabling controls
 		allowEnablingControls = false;
-	});
-	
-	// Append thread task to queue
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	},
+	[=]() -> ThreadTaskResponse {
 		return workflows.installM3dFirmware();
-	});
-	
-	// Append thread complete callback to queue
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 	
 		// Set allow enabling controls
 		allowEnablingControls = true;
@@ -240,20 +215,15 @@ void MyFrame::installM3dFirmware() {
 
 void MyFrame::installFirmwareFromFile() {
 	
-	// Display file dialog
-	wxFileDialog *openFileDialog = new wxFileDialog(this, "Open firmware file", wxEmptyString, wxEmptyString, "Firmware files|*.hex;*.bin;*.rom|All files|*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
+	wxFileDialog openFileDialog(this, "Open firmware file", wxEmptyString, wxEmptyString, "Firmware files|*.hex;*.bin;*.rom|All files|*", wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 	
 	// Check if a file was selected
-	if(openFileDialog->ShowModal() == wxID_OK) {
+	if(openFileDialog.ShowModal() == wxID_OK) {
 	
 		// Set firmware location
-		string firmwareLocation = static_cast<string>(openFileDialog->GetPath());
+		string firmwareLocation = static_cast<string>(openFileDialog.GetPath());
 		
-		// Lock
-		wxCriticalSectionLocker lock(criticalLock);
-
-		// Append thread start callback to queue
-		threadStartCallbackQueue.push([=]() -> void {
+		enqueueBackgroundTask([=]() -> void {
 		
 			// Stop status timer
 			statusTimer->Stop();
@@ -283,15 +253,11 @@ void MyFrame::installFirmwareFromFile() {
 			
 			// Clear allow enabling controls
 			allowEnablingControls = false;
-		});
-		
-		// Append thread task to queue
-		threadTaskQueue.push([=]() -> ThreadTaskResponse {
+		},
+		[=]() -> ThreadTaskResponse {
 			return workflows.installFirmwareFromFile(firmwareLocation);
-		});
-	
-		// Append thread complete callback to queue
-		threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+		},
+		[=](ThreadTaskResponse response) -> void {
 		
 			// Set allow enabling controls
 			allowEnablingControls = true;
@@ -334,23 +300,14 @@ void MyFrame::installFirmwareFromFile() {
 
 void MyFrame::installDrivers() {
 
-	// Lock
-	wxCriticalSectionLocker lock(criticalLock);
-
-	// Append thread start callback to queue
-	threadStartCallbackQueue.push([=]() -> void {
-	
+	enqueueBackgroundTask([=]() -> void {
 		// Disable install drivers button
 		firmwareTabController.setInstallDriversEnabled(false);
-	});
-	
-	// Append thread task to queue
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	},
+	[=]() -> ThreadTaskResponse {
 		return workflows.installDrivers();
-	});
-	
-	// Append thread complete callback to queue
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 	
 		// Enable install drivers button
 		firmwareTabController.setInstallDriversEnabled(true);
@@ -397,27 +354,23 @@ void MyFrame::runManualCommand(const string &command) {
 		};
 	}
 
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push(threadStartCallback ? threadStartCallback : [=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(threadStartCallback,
+	[=]() -> ThreadTaskResponse {
 		return workflows.executeManualCommand(command, [=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push(threadCompleteCallback ? threadCompleteCallback : [=](ThreadTaskResponse response) -> void {});
+	},
+	threadCompleteCallback);
 }
 
 void MyFrame::savePrinterSetting(const string &settingName, const string &value) {
-
-	threadStartCallbackQueue.push([=]() -> void {
+	enqueueBackgroundTask([=]() -> void {
 		enableSettingsControls(false);
-	});
-
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	},
+	[=]() -> ThreadTaskResponse {
 		return workflows.savePrinterSetting(settingName, value);
-	});
-
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 		if(printer.isConnected())
 			enableSettingsControls(true);
 
@@ -426,137 +379,145 @@ void MyFrame::savePrinterSetting(const string &settingName, const string &value)
 }
 
 void MyFrame::runMoveX(bool positive, double distanceMm, int feedRate) {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.moveX(positive, distanceMm, feedRate, [=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runMoveY(bool positive, double distanceMm, int feedRate) {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.moveY(positive, distanceMm, feedRate, [=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runMoveZ(bool positive, double distanceMm, int feedRate) {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.moveZ(positive, distanceMm, feedRate, [=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runHome() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.home([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runMotorsOn() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.motorsOn([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runMotorsOff() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.motorsOff([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runFanOn() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.fanOn([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runFanOff() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.fanOff([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
+}
+
+void MyFrame::runHeatNozzle() {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
+		return workflows.setManualNozzleTemperature(getManualNozzleTemperatureC(), [=](const string &message) -> void {
+			logToConsole(message);
+		});
+	},
+	nullptr);
+}
+
+void MyFrame::runCoolDownNozzle() {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
+		return workflows.coolDownNozzle([=](const string &message) -> void {
+			logToConsole(message);
+		});
+	},
+	nullptr);
 }
 
 void MyFrame::runCalibrateBedPosition() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.calibrateBedPosition([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runCalibrateBedOrientation() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.calibrateBedOrientation([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {});
+	},
+	nullptr);
 }
 
 void MyFrame::runSaveCurrentPositionAsHome() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.saveCurrentPositionAsHome([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 		wxMessageBox(response.message, "M33 Manager", response.style);
 	});
 }
 
 void MyFrame::runSaveZAsZero() {
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr,
+	[=]() -> ThreadTaskResponse {
 		return workflows.saveZAsZero([=](const string &message) -> void {
 			logToConsole(message);
 		});
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
+	},
+	[=](ThreadTaskResponse response) -> void {
 		wxMessageBox(response.message, "M33 Manager", response.style);
 	});
 }

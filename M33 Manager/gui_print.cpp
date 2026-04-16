@@ -8,6 +8,26 @@ bool printJobBlocksUiState(PrintJobState state) {
 	return state == PRINT_JOB_RUNNING || state == PRINT_JOB_PAUSED || state == PRINT_JOB_STOPPING;
 }
 
+int extractTrackedNozzleTarget(const Gcode &gcode) {
+	if(!gcode.hasValue('M'))
+		return 0;
+
+	const string mValue = gcode.getValue('M');
+	if(mValue != "104" && mValue != "109")
+		return 0;
+
+	if(!gcode.hasValue('S'))
+		return 0;
+
+	try {
+		const int targetTemperature = stoi(gcode.getValue('S'));
+		return targetTemperature > 0 ? targetTemperature : 0;
+	}
+	catch(...) {
+		return 0;
+	}
+}
+
 string describePrintPhase(const string &command) {
 	if(command.rfind("M109", 0) == 0 || command.rfind("M104", 0) == 0)
 		return "Heating the nozzle...";
@@ -57,6 +77,9 @@ void MyFrame::loadPrintFile() {
 
 	PreparedPrintJob job = workflows.preparePrintJob(static_cast<string>(openFileDialog.GetPath()));
 	preparedPrintJob = job;
+	hasTrackedPrintNozzleTarget = false;
+	lastPrintNozzleTargetC = 0;
+	printPauseStandbyApplied = false;
 
 	PrintJobStatus status;
 	status.filePath = job.filePath;
@@ -83,8 +106,14 @@ void MyFrame::startPrintJob() {
 	if(!printer.isConnected() || !preparedPrintJob.valid || preparedPrintJob.acceptedCommandCount == 0)
 		return;
 
-	printPauseRequested = false;
-	printStopRequested = false;
+	{
+		wxCriticalSectionLocker lock(criticalLock);
+		printPauseRequested = false;
+		printStopRequested = false;
+		printPauseStandbyApplied = false;
+		hasTrackedPrintNozzleTarget = false;
+		lastPrintNozzleTargetC = 0;
+	}
 
 	PrintJobStatus status = printJobStatus;
 	status.filePath = preparedPrintJob.filePath;
@@ -102,9 +131,7 @@ void MyFrame::startPrintJob() {
 	statusTimer->Stop();
 	allowEnablingControls = false;
 
-	wxCriticalSectionLocker lock(criticalLock);
-	threadStartCallbackQueue.push([=]() -> void {});
-	threadTaskQueue.push([=]() -> ThreadTaskResponse {
+	enqueueBackgroundTask(nullptr, [=]() -> ThreadTaskResponse {
 		PreparedPrintJob job;
 		size_t startIndex = 0;
 		{
@@ -117,16 +144,68 @@ void MyFrame::startPrintJob() {
 			while(true) {
 				bool stopRequested = false;
 				bool pauseRequested = false;
+				bool standbyApplied = false;
 				{
 					wxCriticalSectionLocker taskLock(criticalLock);
 					stopRequested = printStopRequested;
 					pauseRequested = printPauseRequested;
+					standbyApplied = printPauseStandbyApplied;
 				}
 
 				if(stopRequested)
 					break;
 				if(!pauseRequested)
 					break;
+
+				if(!standbyApplied) {
+					const int standbyTemperature = getPauseStandbyTemperatureC();
+					PrintJobStatus pauseTransitionStatus;
+					pauseTransitionStatus.filePath = job.filePath;
+					pauseTransitionStatus.totalCommands = job.acceptedCommandCount;
+					pauseTransitionStatus.currentCommandIndex = i;
+					pauseTransitionStatus.summaryText = job.summaryText;
+					pauseTransitionStatus.statusText = "Pausing and cooling nozzle to " + to_string(standbyTemperature) + "C...";
+					pauseTransitionStatus.state = PRINT_JOB_PAUSED;
+					{
+						wxCriticalSectionLocker taskLock(criticalLock);
+						printJobStatus = pauseTransitionStatus;
+						printJobUpdateQueue.push(pauseTransitionStatus);
+					}
+
+					ThreadTaskResponse standbyResponse = workflows.setNozzleStandbyTemperature(standbyTemperature, [=](const string &message) -> void {
+						logToConsole(message);
+					});
+					if(standbyResponse.style & wxICON_ERROR) {
+						PrintJobStatus failedStatus;
+						failedStatus.state = PRINT_JOB_FAILED;
+						failedStatus.filePath = job.filePath;
+						failedStatus.totalCommands = job.acceptedCommandCount;
+						failedStatus.currentCommandIndex = i;
+						failedStatus.summaryText = job.summaryText;
+						failedStatus.statusText = "Print failed";
+						failedStatus.errorText = standbyResponse.message.empty() ? "Failed to cool the nozzle for pause" : standbyResponse.message;
+						{
+							wxCriticalSectionLocker taskLock(criticalLock);
+							printJobStatus = failedStatus;
+							printJobUpdateQueue.push(failedStatus);
+						}
+						return standbyResponse;
+					}
+
+					PrintJobStatus pausedStatus;
+					pausedStatus.filePath = job.filePath;
+					pausedStatus.totalCommands = job.acceptedCommandCount;
+					pausedStatus.currentCommandIndex = i;
+					pausedStatus.summaryText = job.summaryText;
+					pausedStatus.statusText = "Paused at " + to_string(standbyTemperature) + "C";
+					pausedStatus.state = PRINT_JOB_PAUSED;
+					{
+						wxCriticalSectionLocker taskLock(criticalLock);
+						printPauseStandbyApplied = true;
+						printJobStatus = pausedStatus;
+						printJobUpdateQueue.push(pausedStatus);
+					}
+				}
 				sleepUs(50000);
 			}
 
@@ -134,6 +213,57 @@ void MyFrame::startPrintJob() {
 				wxCriticalSectionLocker taskLock(criticalLock);
 				if(printStopRequested)
 					break;
+			}
+
+			bool reheatNeeded = false;
+			int resumeTargetTemperature = 0;
+			{
+				wxCriticalSectionLocker taskLock(criticalLock);
+				reheatNeeded = printPauseStandbyApplied && hasTrackedPrintNozzleTarget;
+				resumeTargetTemperature = lastPrintNozzleTargetC;
+			}
+			if(reheatNeeded) {
+				PrintJobStatus reheatStatus;
+				reheatStatus.filePath = job.filePath;
+				reheatStatus.totalCommands = job.acceptedCommandCount;
+				reheatStatus.currentCommandIndex = i;
+				reheatStatus.summaryText = job.summaryText;
+				reheatStatus.statusText = "Reheating nozzle to " + to_string(resumeTargetTemperature) + "C...";
+				reheatStatus.state = PRINT_JOB_RUNNING;
+				{
+					wxCriticalSectionLocker taskLock(criticalLock);
+					printJobStatus = reheatStatus;
+					printJobUpdateQueue.push(reheatStatus);
+				}
+
+				ThreadTaskResponse reheatResponse = workflows.reheatNozzleForResume(resumeTargetTemperature, [=](const string &message) -> void {
+					logToConsole(message);
+				});
+				if(reheatResponse.style & wxICON_ERROR) {
+					PrintJobStatus failedStatus;
+					failedStatus.state = PRINT_JOB_FAILED;
+					failedStatus.filePath = job.filePath;
+					failedStatus.totalCommands = job.acceptedCommandCount;
+					failedStatus.currentCommandIndex = i;
+					failedStatus.summaryText = job.summaryText;
+					failedStatus.statusText = "Print failed";
+					failedStatus.errorText = reheatResponse.message.empty() ? "Failed to reheat the nozzle before resuming" : reheatResponse.message;
+					{
+						wxCriticalSectionLocker taskLock(criticalLock);
+						printJobStatus = failedStatus;
+						printJobUpdateQueue.push(failedStatus);
+					}
+					return reheatResponse;
+				}
+
+				{
+					wxCriticalSectionLocker taskLock(criticalLock);
+					printPauseStandbyApplied = false;
+				}
+			}
+			else {
+				wxCriticalSectionLocker taskLock(criticalLock);
+				printPauseStandbyApplied = false;
 			}
 
 			PrintJobStatus phaseStatus;
@@ -149,9 +279,32 @@ void MyFrame::startPrintJob() {
 				printJobUpdateQueue.push(phaseStatus);
 			}
 
-			workflows.executePreparedPrintCommand(job.printableCommands[i], [=](const string &message) -> void {
+			ThreadTaskResponse commandResponse = workflows.executePreparedPrintCommand(job.printableCommands[i], [=](const string &message) -> void {
 				logToConsole(message);
 			});
+			if(commandResponse.style & wxICON_ERROR) {
+				PrintJobStatus failedStatus;
+				failedStatus.state = PRINT_JOB_FAILED;
+				failedStatus.filePath = job.filePath;
+				failedStatus.totalCommands = job.acceptedCommandCount;
+				failedStatus.currentCommandIndex = i;
+				failedStatus.summaryText = job.summaryText;
+				failedStatus.statusText = "Print failed";
+				failedStatus.errorText = commandResponse.message.empty() ? "Printer command failed during print" : commandResponse.message;
+				{
+					wxCriticalSectionLocker taskLock(criticalLock);
+					printJobStatus = failedStatus;
+					printJobUpdateQueue.push(failedStatus);
+				}
+				return commandResponse;
+			}
+
+			const int trackedNozzleTarget = extractTrackedNozzleTarget(job.parsedCommands[i]);
+			if(trackedNozzleTarget > 0) {
+				wxCriticalSectionLocker taskLock(criticalLock);
+				hasTrackedPrintNozzleTarget = true;
+				lastPrintNozzleTargetC = trackedNozzleTarget;
+			}
 
 			if(!printer.isConnected()) {
 				PrintJobStatus failedStatus;
@@ -175,7 +328,7 @@ void MyFrame::startPrintJob() {
 			progressStatus.totalCommands = job.acceptedCommandCount;
 			progressStatus.currentCommandIndex = i + 1;
 			progressStatus.summaryText = job.summaryText;
-			progressStatus.statusText = printPauseRequested ? "Paused" : "Printing...";
+			progressStatus.statusText = phaseStatus.statusText;
 			progressStatus.state = printPauseRequested ? PRINT_JOB_PAUSED : PRINT_JOB_RUNNING;
 			{
 				wxCriticalSectionLocker taskLock(criticalLock);
@@ -189,6 +342,31 @@ void MyFrame::startPrintJob() {
 		finalStatus.filePath = job.filePath;
 		finalStatus.totalCommands = job.acceptedCommandCount;
 		finalStatus.summaryText = job.summaryText;
+
+		{
+			wxCriticalSectionLocker taskLock(criticalLock);
+			if(printStopRequested) {
+				if(printer.isConnected()) {
+					PrintJobStatus stopStatus;
+					stopStatus.filePath = job.filePath;
+					stopStatus.totalCommands = job.acceptedCommandCount;
+					stopStatus.currentCommandIndex = printJobStatus.currentCommandIndex;
+					stopStatus.summaryText = job.summaryText;
+					stopStatus.statusText = "Stopping and cooling nozzle...";
+					stopStatus.state = PRINT_JOB_STOPPING;
+					printJobStatus = stopStatus;
+					printJobUpdateQueue.push(stopStatus);
+				}
+			}
+		}
+
+		if(printStopRequested && printer.isConnected()) {
+			ThreadTaskResponse cooldownResponse = workflows.coolDownNozzle([=](const string &message) -> void {
+				logToConsole(message);
+			});
+			if(cooldownResponse.style & wxICON_ERROR && response.message.empty())
+				response = cooldownResponse;
+		}
 
 		{
 			wxCriticalSectionLocker taskLock(criticalLock);
@@ -209,11 +387,14 @@ void MyFrame::startPrintJob() {
 		}
 
 		return response;
-	});
-	threadCompleteCallbackQueue.push([=](ThreadTaskResponse response) -> void {
-		allowEnablingControls = true;
-		printPauseRequested = false;
-		printStopRequested = false;
+	}, [=](ThreadTaskResponse response) -> void {
+		{
+			wxCriticalSectionLocker lock(criticalLock);
+			allowEnablingControls = true;
+			printPauseRequested = false;
+			printStopRequested = false;
+			printPauseStandbyApplied = false;
+		}
 		statusTimer->Start(100);
 		restoreControlsForCurrentState();
 		if(!response.message.empty())
@@ -225,10 +406,15 @@ void MyFrame::pausePrintJob() {
 	if(printJobStatus.state != PRINT_JOB_RUNNING)
 		return;
 
-	printPauseRequested = true;
-	PrintJobStatus status = printJobStatus;
-	status.state = PRINT_JOB_PAUSED;
-	status.statusText = "Paused";
+	const int standbyTemperature = getPauseStandbyTemperatureC();
+	PrintJobStatus status;
+	{
+		wxCriticalSectionLocker lock(criticalLock);
+		printPauseRequested = true;
+		status = printJobStatus;
+		status.state = PRINT_JOB_PAUSED;
+		status.statusText = "Pausing and cooling nozzle to " + to_string(standbyTemperature) + "C...";
+	}
 	applyPrintJobStatus(status);
 }
 
@@ -236,10 +422,14 @@ void MyFrame::resumePrintJob() {
 	if(printJobStatus.state != PRINT_JOB_PAUSED)
 		return;
 
-	printPauseRequested = false;
-	PrintJobStatus status = printJobStatus;
-	status.state = PRINT_JOB_RUNNING;
-	status.statusText = "Printing";
+	PrintJobStatus status;
+	{
+		wxCriticalSectionLocker lock(criticalLock);
+		printPauseRequested = false;
+		status = printJobStatus;
+		status.state = PRINT_JOB_RUNNING;
+		status.statusText = hasTrackedPrintNozzleTarget ? "Reheating nozzle to " + to_string(lastPrintNozzleTargetC) + "C..." : "Resuming print...";
+	}
 	applyPrintJobStatus(status);
 }
 
@@ -247,15 +437,20 @@ void MyFrame::stopPrintJob() {
 	if(printJobStatus.state != PRINT_JOB_RUNNING && printJobStatus.state != PRINT_JOB_PAUSED)
 		return;
 
-	printStopRequested = true;
-	printPauseRequested = false;
-	PrintJobStatus status = printJobStatus;
-	status.state = PRINT_JOB_STOPPING;
-	status.statusText = "Stopping";
+	PrintJobStatus status;
+	{
+		wxCriticalSectionLocker lock(criticalLock);
+		printStopRequested = true;
+		printPauseRequested = false;
+		status = printJobStatus;
+		status.state = PRINT_JOB_STOPPING;
+		status.statusText = "Stopping and cooling nozzle...";
+	}
 	applyPrintJobStatus(status);
 }
 
 PrintJobStatus MyFrame::getPrintJobStatus() const {
+	wxCriticalSectionLocker lock(const_cast<wxCriticalSection &>(criticalLock));
 	return printJobStatus;
 }
 
@@ -264,24 +459,22 @@ const PreparedPrintJob &MyFrame::getPreparedPrintJob() const {
 }
 
 void MyFrame::applyPrintJobStatus(const PrintJobStatus &status) {
-	printJobStatus = status;
+	{
+		wxCriticalSectionLocker lock(criticalLock);
+		printJobStatus = status;
+	}
 	printTabController.applyPrintJobStatus(status);
 	updatePrintUiAvailability();
+	refreshFooterStatus();
 
 	if(status.state == PRINT_JOB_RUNNING || status.state == PRINT_JOB_PAUSED || status.state == PRINT_JOB_STOPPING) {
 		setStatusRowVisible(true);
-		statusText->SetLabel(status.statusText.empty() ? "Printing..." : status.statusText);
-		statusText->SetForegroundColour(status.state == PRINT_JOB_PAUSED ? wxColour(255, 180, 0) : wxColour(80, 170, 255));
 	}
 	else if(status.state == PRINT_JOB_COMPLETED) {
 		setStatusRowVisible(true);
-		statusText->SetLabel("Print completed");
-		statusText->SetForegroundColour(wxColour(0, 200, 0));
 	}
 	else if(status.state == PRINT_JOB_FAILED) {
 		setStatusRowVisible(true);
-		statusText->SetLabel(status.errorText.empty() ? "Print failed" : status.errorText);
-		statusText->SetForegroundColour(wxColour(255, 0, 0));
 	}
 
 	if(printJobBlocksUiState(status.state)) {
@@ -292,6 +485,7 @@ void MyFrame::applyPrintJobStatus(const PrintJobStatus &status) {
 		enableSettingsControls(false);
 		enableMiscellaneousControls(false);
 		enableCalibrationControls(false);
+		enableStandbyControls(false);
 		connectionButton->Enable(false);
 	}
 
@@ -304,12 +498,14 @@ void MyFrame::restoreControlsForCurrentState() {
 		return;
 
 	if(!printer.isConnected()) {
+		switchToModeButton->SetLabel("Switch to bootloader mode");
 		enableFirmwareControls(false);
 		enableCommandControls(false);
 		enableMovementControls(false);
 		enableSettingsControls(false);
 		enableMiscellaneousControls(false);
 		enableCalibrationControls(false);
+		enableStandbyControls(true);
 		enableConnectionControls(true);
 		updatePrintUiAvailability();
 		return;
@@ -321,16 +517,20 @@ void MyFrame::restoreControlsForCurrentState() {
 	enableCommandControls(true);
 
 	if(printer.getOperatingMode() == BOOTLOADER) {
+		switchToModeButton->SetLabel("Switch to firmware mode");
 		enableMovementControls(false);
 		enableSettingsControls(true);
 		enableMiscellaneousControls(false);
 		enableCalibrationControls(false);
+		enableStandbyControls(true);
 	}
 	else {
+		switchToModeButton->SetLabel("Switch to bootloader mode");
 		enableMovementControls(true);
 		enableSettingsControls(false);
 		enableMiscellaneousControls(true);
 		enableCalibrationControls(true);
+		enableStandbyControls(true);
 	}
 
 	updatePrintUiAvailability();

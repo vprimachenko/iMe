@@ -9,6 +9,7 @@
 #include <queue>
 #include <thread>
 #include <atomic>
+#include <wx/config.h>
 #include <wx/sysopt.h>
 #include <wx/glcanvas.h>
 #include <wx/gbsizer.h>
@@ -20,6 +21,21 @@
 #include "control_tab_controller.h"
 #include "firmware_tab_controller.h"
 #include "print_tab_controller.h"
+
+struct PendingGuiTask {
+	function<void()> startCallback;
+	function<ThreadTaskResponse()> task;
+	function<void(ThreadTaskResponse)> completeCallback;
+};
+
+struct ThreadTaskStartPayload {
+	function<void()> callback;
+};
+
+struct ThreadTaskCompletePayload {
+	ThreadTaskResponse response;
+	function<void(ThreadTaskResponse)> callback;
+};
 
 // My app class
 class MyApp: public wxApp {
@@ -147,6 +163,12 @@ class MyFrame: public wxFrame, public GuiHost {
 		void runMotorsOff() override;
 		void runFanOn() override;
 		void runFanOff() override;
+		void runHeatNozzle() override;
+		void runCoolDownNozzle() override;
+		int getPauseStandbyTemperatureC() const override;
+		void setPauseStandbyTemperatureC(int temperatureC) override;
+		int getManualNozzleTemperatureC() const override;
+		void setManualNozzleTemperatureC(int temperatureC) override;
 			void runCalibrateBedPosition() override;
 			void runCalibrateBedOrientation() override;
 			void runSaveCurrentPositionAsHome() override;
@@ -170,10 +192,12 @@ class MyFrame: public wxFrame, public GuiHost {
 		void enableSettingsControls(bool enable);
 		void enableMiscellaneousControls(bool enable);
 		void enableCalibrationControls(bool enable);
+		void enableStandbyControls(bool enable);
 		void setConnectedUiVisible(bool visible);
 		void setStatusRowVisible(bool visible);
 		void refreshWindowLayout();
 		void applyPrintJobStatus(const PrintJobStatus &status);
+		void refreshFooterStatus();
 		void restoreControlsForCurrentState();
 		bool isPrintJobBlockingUi() const;
 		void updatePrintUiAvailability();
@@ -198,6 +222,11 @@ class MyFrame: public wxFrame, public GuiHost {
 	
 	// Private
 	private:
+		void enqueueBackgroundTask(
+			function<void()> startCallback,
+			function<ThreadTaskResponse()> task,
+			function<void(ThreadTaskResponse)> completeCallback
+		);
 		void shutdownFrameResources();
 		void workerMain();
 		bool startWorkerThread();
@@ -223,10 +252,8 @@ class MyFrame: public wxFrame, public GuiHost {
 		// Critical lock
 		wxCriticalSection criticalLock;
 		
-		// Thread start, task, and complete queues
-		queue<function<void()>> threadStartCallbackQueue;
-		queue<function<ThreadTaskResponse()>> threadTaskQueue;
-		queue<function<void(ThreadTaskResponse response)>> threadCompleteCallbackQueue;
+		// Pending background work
+		queue<PendingGuiTask> pendingTaskQueue;
 		
 		// Log queue
 		queue<string> logQueue;
@@ -238,6 +265,13 @@ class MyFrame: public wxFrame, public GuiHost {
 		Printer printer;
 		PreparedPrintJob preparedPrintJob;
 		PrintJobStatus printJobStatus;
+		int pauseStandbyTemperatureC;
+		int manualNozzleTemperatureC;
+		int lastPrintNozzleTargetC;
+		bool hasTrackedPrintNozzleTarget;
+		bool printPauseStandbyApplied;
+		string connectionStatusText;
+		wxColour connectionStatusColour;
 		
 		// Allow enabling controls
 		bool allowEnablingControls;
